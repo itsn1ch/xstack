@@ -4,7 +4,57 @@ Use Xstack to write specifications, design changes, create tickets, and build so
 
 ## Install the skills
 
-Xstack installs with the [`skills`](https://github.com/vercel-labs/skills) CLI. It needs Node.js for `npx`. Run each command from the parent directory of `xstack`.
+Xstack installs with the [`skills`](https://github.com/vercel-labs/skills) CLI. Install Node.js **22.20 or later** (including npm and `npx`) and Git first.
+
+### Install from GitHub
+
+Open a terminal in the project where you want to use Xstack, then run:
+
+```bash
+npx skills add itsn1ch/xstack --skill '*'
+```
+
+Choose the coding agents you use when prompted. Skills are installed into the current project by default. You do not need to clone this repository first.
+
+To install all Xstack skills for a specific agent without prompts:
+
+```bash
+# OpenCode
+npx skills add itsn1ch/xstack --skill '*' -a opencode -y
+
+# Claude Code
+npx skills add itsn1ch/xstack --skill '*' -a claude-code -y
+
+# Cursor
+npx skills add itsn1ch/xstack --skill '*' -a cursor -y
+```
+
+Add `-g` to make the skills available across your projects:
+
+```bash
+npx skills add itsn1ch/xstack --skill '*' -a opencode -g -y
+```
+
+To browse the available skills or install only a few:
+
+```bash
+npx skills add itsn1ch/xstack --list
+npx skills add itsn1ch/xstack --skill setup-xstack --skill poteto-mode --skill diving --skill tdd
+```
+
+After installation, follow [Set up your project](#set-up-your-project) and run `/setup-xstack` in your coding agent.
+
+### Install from a local folder
+
+If you already cloned or downloaded Xstack, run the installer **from your target project** and pass the path to the Xstack repository:
+
+```bash
+npx skills add /path/to/xstack --skill '*'
+```
+
+The source folder must contain this README and the `skills/` directory. Replace `/path/to/xstack` with its actual path. For example, if the Xstack repository is a sibling of your project, use `../xstack`.
+
+If you are running from the parent directory of the Xstack repository, you can inspect the skills or install them globally:
 
 1. List the skills without installing them:
 
@@ -12,24 +62,14 @@ Xstack installs with the [`skills`](https://github.com/vercel-labs/skills) CLI. 
    npx skills add ./xstack --list
    ```
 
-2. Install every skill into the current project. The CLI asks which agents to install for:
+2. Install every skill globally for OpenCode:
 
    ```bash
-   npx skills add ./xstack --skill '*'
+   npx skills add ./xstack --skill '*' -a opencode -g -y
    ```
 
-3. Optional: target an agent, install for your user account, or skip the prompts:
+### Installation options
 
-   ```bash
-   # Only Claude Code
-   npx skills add ./xstack --skill '*' -a claude-code
-
-   # User directory instead of the project, no prompts
-   npx skills add ./xstack --skill '*' -a claude-code -g -y
-
-   # A few skills only
-   npx skills add ./xstack --skill poteto-mode --skill diving --skill tdd
-   ```
 
 | Flag | Effect |
 |---|---|
@@ -41,7 +81,9 @@ Xstack installs with the [`skills`](https://github.com/vercel-labs/skills) CLI. 
 | `--copy` | Copy files instead of symlinking them. |
 | `--all` | Same as `--skill '*' --agent '*' -y`. |
 
-To remove a skill, run `npx skills remove <name>`. With Bun, replace `npx` with `bun x`.
+Verify the installation with `npx skills list`, or `npx skills list -g` for a global installation. If your agent does not show the new skills, restart its session and open your target project again.
+
+To remove a skill, run `npx skills remove <name>`, or `npx skills remove <name> -g` for a global installation. With Bun, replace `npx` with `bun x`.
 
 Keep the package directory intact. Some skills use scripts and documents outside their own directory, so copying only `SKILL.md` is not enough.
 
@@ -171,7 +213,7 @@ For more task examples, read the [usage guide](docs/guide/README.md).
 
 ### Principles
 
-24 one-rule skills, named `principle-*`, that `poteto-mode` reads and cites. Examples: [`principle-fix-root-causes`](skills/principle-fix-root-causes/SKILL.md), [`principle-prove-it-works`](skills/principle-prove-it-works/SKILL.md), and [`principle-subtract-before-you-add`](skills/principle-subtract-before-you-add/SKILL.md). Run `npx skills add ./xstack --list` for the full list.
+24 one-rule skills, named `principle-*`, that `poteto-mode` reads and cites. Examples: [`principle-fix-root-causes`](skills/principle-fix-root-causes/SKILL.md), [`principle-prove-it-works`](skills/principle-prove-it-works/SKILL.md), and [`principle-subtract-before-you-add`](skills/principle-subtract-before-you-add/SKILL.md). Run `npx skills add itsn1ch/xstack --list` for the full list.
 
 ## Sources and licenses
 

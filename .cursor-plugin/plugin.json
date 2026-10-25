@@ -1,0 +1,11 @@
+{
+  "name": "xstack",
+  "displayName": "xstack",
+  "version": "1.1.0",
+  "description": "Workflow pstack, to-spec, to-evol, dan to-tickets (desain plus tiket) dengan satu setup-xstack.",
+  "license": "MIT",
+  "logo": "assets/logo.png",
+  "category": "developer-tools",
+  "skills": "./skills/",
+  "agents": "./agents/"
+}

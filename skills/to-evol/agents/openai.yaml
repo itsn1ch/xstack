@@ -1,0 +1,5 @@
+interface:
+  display_name: "To Evol"
+  short_description: "Turn a conversation into an evolution spec for a shipped feature"
+policy:
+  allow_implicit_invocation: false

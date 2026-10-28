@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Laziness Protocol
 
+For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going`, post-edit resweeps, and actual item, failure, and remaining-finding counts. The agent decides whether a finding is safe to change.
+
 - **Consolidate decisions.** Do not repeat the same choice in several places. Put it behind one source of truth and pass the result as a simple flag.
 - **Minimize the diff.** Make the smallest change that solves the problem. Fewer lines beat "elegant" boilerplate.
 - **Scope comes from the request.** Before you cut the diff, list what the request needs as outcomes you can check. This principle shrinks how you meet them, never how many you meet. If an outcome is still unmet, the diff is too small, not lean.

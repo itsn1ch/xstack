@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Add JSONL browser tasks to `subtask`: run ordered agent-browser commands in isolated sessions, serialize tasks sharing a session, and run independent sessions concurrently within the CPU resource limit. Use a private disk spool for browser backlogs and document failure, timeout, and session cleanup behavior.
+- Apply the shared mechanical-sweep policy to investigation, verification, comment-cleanup, recall, and related principle skills.
+- Standardize scoped `subtask --keep-going` sweeps across poteto-mode, to-tickets, to-spec, to-evol, diving, and judgment, with post-edit resweeps, worker checks, and item-level reporting.
 - Fix `to-tickets` routing so changed existing contracts go through design and incomplete candidate sets block handoff. Clarify that autonomous wake-up depends on the harness and that an active-session notification does not prove restart persistence.
 - Strengthen delegation in `poteto-mode`, `to-tickets`, `to-spec`, and `to-evol`: parallelize independent work without splitting small tasks, keep design selection and final verification with the root, batch mechanical work through `subtask`, and run applicable checks through `worker`.
 - Update `setup-xstack` for the worker: find `subtask` in the same order as the session hook, require `worker probe` as well as `subtask hot`, report a project without Git as blocked for background verification, and offer an optional `PATH` line when `~/.cargo/bin` is missing. Add a sixth pointer to the `## Xstack` block that runs `/judgment` before every commit and PR. List the binaries in the README setup section.

@@ -8,9 +8,12 @@ disable-model-invocation: true
 
 When debugging, fix the fault, not the place where it surfaced. The symptom is where a wrong state became visible. The root cause is the first place the system did something it should not do, or failed to handle a state it should handle.
 
+For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going`, post-edit resweeps, and actual item, failure, and remaining-finding counts. Evidence and agent judgment determine whether instances share a root cause.
+
 **Why:** A symptom fix hides the evidence and leaves the fault free to surface somewhere else. Each one makes the system harder to reason about, because the code now carries a workaround for a bug that nobody named.
 
 **Pattern:**
+
 - Reproduce first.
 - Ask "why" at each step until the answer is a wrong decision in the code, not a consequence of an earlier one.
 - When stuck, instrument. Read the actual error and the actual state. Do not guess.

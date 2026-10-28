@@ -14,6 +14,8 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
 
 Batch independent mechanical reads, searches, reference checks, and draft processing with `subtask` per **Subtasks**, retaining results needed to substantiate decisions. Use `worker fast` for independent affected checks when executable checks are applicable and `worker run` for required full checks, per **Tests and verification**; run independent checks together. These tools do not replace judgment, evidence review, or publication readback. Pipeline independent root work while delegates and checks run; do not poll or wait when other work is ready.
 
+For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch the in-scope mechanical searches with `--keep-going`, resweep affected scope after edits, and report observed items, failures, and remaining findings. The agent decides what findings mean.
+
 ## Process
 
 **Write tight.** One line per fact. Reference IDs and earlier sections instead of copying them. Omit optional fields that are empty. A section with nothing to say gets one line with its reason. Depth follows the risk level, never padding.

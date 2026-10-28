@@ -1,6 +1,6 @@
 ---
 name: setup-xstack
-description: Configure xstack model roles and reasoning budget, the project code formatter (detected, or installed when missing), project issue tracker, publication labels, and domain-document pointers. Use for /setup-xstack, first-time xstack setup, or changing xstack models or tracker settings.
+description: Configure xstack model roles and reasoning budget, the project code formatter (detected, or installed when missing), project issue tracker, publication labels, domain-document pointers, and the `worker` and `subtask` binaries that make subtasks the session default. Use for /setup-xstack, first-time xstack setup, or changing xstack models or tracker settings.
 ---
 
 # Setup xstack
@@ -14,9 +14,10 @@ Read [model configuration](references/models.md), [project configuration](refere
 - Follow model-reference steps 1 and 2 to discover available models and existing role settings. Keep the `pstack-models` locations used by the bundled consumers; a second xstack-only model file would be ignored by them.
 - Read the target project's `AGENTS.md` / `CLAUDE.md`, their configuration pointers, and any existing `docs/agents/issue-tracker.md`, `triage-labels.md`, and `domain.md`. Reuse an existing Matt Pocock setup without requiring its setup skill.
 - Follow formatter-reference steps 1 and 2 to list the project's languages and detect each one's formatter, and read any existing `docs/agents/formatter.md`.
+- Run `<xstack root>/subtasks/target/release/subtask hot` and record whether it prints `SUBTASK HOT`, `SUBTASK COLD` with the reason, or fails because the binary is missing.
 - Inspect Git remotes, available tracker tooling, `.scratch/`, existing glossary and ADR paths, and monorepo boundaries. Inspect authentication read-only when using a remote tracker. Discovery alone is not permission to create labels or issues.
 
-Complete when the current model choices, formatter per language, tracker destination, publication label mapping, domain pointers, and missing decisions are known. An existing configuration is the starting point, not permission to replace it with defaults.
+Complete when the subtask state, the current model choices, formatter per language, tracker destination, publication label mapping, domain pointers, and missing decisions are known. An existing configuration is the starting point, not permission to replace it with defaults.
 
 ## 2. Resolve choices and preview changes
 
@@ -35,7 +36,8 @@ After approval:
 1. Follow model-reference step 5 to write approved model settings, or retain the existing settings unchanged when no model change was requested. Under a harness-managed policy, use its supported configuration mechanism and report the actual location. If persistence is unavailable, report that part as blocked rather than claiming completion.
 2. Run the approved formatter installs, config files, and scripts, then write `docs/agents/formatter.md` per formatter-reference step 4. Never reformat existing files here.
 3. Follow project-reference **Write the configuration** to persist tracker operations, label mapping, domain pointers, the formatter pointer, and one instruction block in the target project.
-4. If a remote label is required and its creation was approved, create only the missing configured label. Preserve existing labels and permissions. Setup never creates a sample issue.
+4. Build the binaries when `subtask hot` did not print `SUBTASK HOT`: `cargo build --release --manifest-path <xstack root>/worker/Cargo.toml`, then the same for `<xstack root>/subtasks/Cargo.toml`. Start the build in the background before the other writes and wait for it here. Without Cargo, report subtasks as blocked with the install hint, not as configured.
+5. If a remote label is required and its creation was approved, create only the missing configured label. Preserve existing labels and permissions. Setup never creates a sample issue.
 
 Keep unrelated project instructions and user edits intact. Re-running with unchanged choices must not duplicate instruction blocks or label definitions.
 
@@ -48,8 +50,9 @@ Read the saved configuration back and resolve each pointer from the project root
 - Every project language has a formatter entry, and each formatter's check command runs (formatter-reference step 5). A language recorded "none, declined" is reported, not hidden.
 - The `ready-for-agent` role resolves to the saved label or local status; no skill has to infer it.
 - Domain paths describe actual existing documents or clearly state that none exist yet. Every configuration pointer resolves, and exactly one owning instruction block (`Xstack` or the reused `Agent skills` block) contains those pointers.
+- `subtask hot` prints `SUBTASK HOT`, so `to-spec`, `to-evol`, `to-tickets`, and poteto-mode fan mechanical work out through it by default. In Claude Code the plugin's SessionStart hook prints that line in every new session; elsewhere the Xstack block's subtask pointer does.
 - `to-spec`, `to-evol`, and `to-tickets` can obtain their configuration from the project files without another setup command.
 
-Report saved and retained file locations, verification results, and any blocked part separately. Setup is complete only when model settings, the formatter configuration, and project publication configuration are usable. Mention new-session requirements for automatically loaded model rules. If the user requested only a model or tracker change, still check the retained side before declaring the unified setup complete.
+Report saved and retained file locations, verification results, and any blocked part separately. Setup is complete only when model settings, the formatter configuration, project publication configuration, and `subtask hot` are usable. Mention new-session requirements for automatically loaded model rules. If the user requested only a model or tracker change, still check the retained side before declaring the unified setup complete.
 
 After the required setup is verified, follow model-reference steps 7 and 8 for optional app-verification and formal-verification offers. Declining either does not block setup. Generating either requires the user's acceptance.

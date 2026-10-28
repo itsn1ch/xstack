@@ -62,11 +62,12 @@ Write the approved tracker configuration and required label mapping at the autho
 
 Update one existing root instruction file: prefer `CLAUDE.md` when present, otherwise `AGENTS.md`; if neither exists, create `AGENTS.md`. If both exist, update only the one that owns the existing configuration pointers, or `CLAUDE.md` when neither does. Do not copy configuration into both.
 
-Maintain exactly one `## Xstack` block containing four short context pointers:
+Maintain exactly one `## Xstack` block containing five short context pointers:
 
 - Before publishing specs or tickets, read the authoritative issue-tracker configuration.
 - When applying a publication label or status, read the authoritative triage-label mapping.
 - Before drafting specs or tickets, read the domain-document configuration and relevant existing documents.
 - Before every commit, run the formatter from the formatter configuration on every changed file.
+- At session start, unless a `SUBTASK HOT` line is already in context, run `<xstack root>/subtasks/target/release/subtask hot`; fan mechanical work out through `subtask` by default, per **Subtasks** in poteto-mode.
 
 Use the actual paths in the pointers. Update an existing Xstack block in place. If an existing `## Agent skills` block already owns these pointers, update that block instead of duplicating it. Preserve unrelated instructions. Re-read both configuration files and instruction pointers after writing.

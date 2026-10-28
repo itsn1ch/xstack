@@ -124,6 +124,17 @@ Use `--each` when each input item needs its own test command. Use `--keep-going`
 
 The background scheduler shares queued checks and native test shards. It cannot divide a test process that has already started. Use the test runner's shard support for background checks instead of nesting `worker split` inside an outer worker check.
 
+### Install the subtask runner
+
+```sh
+cargo install --locked --path subtasks
+subtask hot
+```
+
+`subtask hot` checks that `subtask` and `worker` match their sources, warms the CPU sample, and prints one `SUBTASK HOT` line, or `SUBTASK COLD` with the rebuild command. In Claude Code the plugin's `hooks/hooks.json` runs it at every session start, and starts the build in the background when a binary is missing or stale, so `subtask` is the default for mechanical fan-out without a manual step. `/setup-xstack` builds both binaries and adds the same pointer to the project's `## Xstack` block for other harnesses.
+
+`subtask` runs subtasks for an agent without any model call: one shell command per item (`--sh "cmd {}"`, or 32 items per process without `{}`), HTTP requests (`--http`), and file reads (`--grep`, `--hash`, `--lines`), or JSONL lines that mix them. Each kind has its own Tokio pool, sized from idle cores, free memory, and the descriptor limit, and split evenly across every `subtask` running at once. The verification worker registers in the same share, so a background verification takes its even share of the cores and leaves the HTTP and file pools to subtasks. Results stream to a JSONL file (`--out`); stdout prints a one-line summary and the first failures. The default stops on the first failure; `--keep-going` runs everything. `worker probe` and `subtask probe` reuse a recent CPU sample, so they return in a few milliseconds.
+
 
 ## Set up your project
 

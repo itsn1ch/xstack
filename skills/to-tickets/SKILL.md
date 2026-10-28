@@ -21,6 +21,8 @@ Pick the mode before Phase A, and name it in the todolist.
 
 State the chosen mode and the reason in the first reply line, so the invoker can correct it before Phase D. When the invoker points to an existing contract (the epic's `# Design` section), or the work changes no function or type, skip Phases A to C and start at Phase D. An evolution spec from **to-evol** with Contract Impact does not skip. Ground the existing feature, then run Phase B over the changed parts of its contract.
 
+**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. Phase A's mechanical grounding (callers, usages, and existing names over a file list) and Phase D's tracker calls go through `subtask`.
+
 Open a todolist with one entry per phase before starting.
 
 1. Ground

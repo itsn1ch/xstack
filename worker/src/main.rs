@@ -10,7 +10,8 @@
 //!   worker enqueue [<ref>]       queue a commit, start the worker, and print the unverified commit count
 //!                                The default ref is HEAD.
 //!   worker status <base>         show one line per commit in base..HEAD
-//!   worker wait [<ref>]          wait for a result, then exit with 0 for a pass or 1 for a failure
+//!   worker wait [<ref>]          block until a result lands, then exit with 0 for a pass or 1 for a failure;
+//!                                run it in the background, above unverified depth 3, or after `GATE BLOCKED`
 //!   worker gate <base> [--each]  exit with 0 only if HEAD passed, or every commit passed with --each
 //!   worker fast --check "<cmd>" [--check ...]
 //!                                Run all checks in the foreground. The first failure stops the rest.
@@ -181,12 +182,17 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
                 .as_ref()
                 .map(|s| format!(" (same tree as {})", short(s)))
                 .unwrap_or_default();
+            let depth = queue::unverified_depth(repo)?;
             println!(
-                "{} {}{reused}, unverified depth {}",
+                "{} {}{reused}, unverified depth {depth}",
                 short(&entry.sha),
-                entry.status.as_str(),
-                queue::unverified_depth(repo)?
+                entry.status.as_str()
             );
+            if depth > 3 {
+                println!("unverified depth above 3: run `worker wait` on the oldest pending commit before the next task");
+            } else {
+                println!("verifying in the background: read the result with `worker status <base>`, not a foreground `worker wait`");
+            }
             Ok(0)
         }
         "status" => {
@@ -268,7 +274,7 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
             Ok(0)
         }
         "probe" => {
-            let (_, power) = Meter::start();
+            let (_, power) = Meter::quick();
             let memory = power
                 .mem_free_mb
                 .map(|m| format!("{m} MB free"))

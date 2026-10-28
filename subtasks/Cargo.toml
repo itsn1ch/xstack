@@ -1,0 +1,24 @@
+[package]
+name = "xstack-subtasks"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Runs subtasks for an agent without model calls: shell commands, HTTP requests, and file reads, sharing the machine with the verification worker."
+
+[lib]
+name = "xstack_subtasks"
+path = "src/lib.rs"
+
+[[bin]]
+name = "subtask"
+path = "src/main.rs"
+
+[dependencies]
+blake3 = "1.8"
+libc = "0.2"
+regex = "1.13"
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.54", features = ["rt-multi-thread", "process", "sync", "time", "macros", "io-util", "fs"] }
+xstack-worker = { path = "../worker" }

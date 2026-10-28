@@ -88,7 +88,7 @@ Show the draft to the user and take feedback. Expect multiple iterations. Cut ru
 
 ### 6. Land it
 
-Work in a worktree off main. Commit and open a PR. Don't push to main directly.
+Work in a worktree off main. Commit and open a PR, with its title and description written through `/technical-writing` then `/unslop` per **PR prose** in poteto-mode's `playbooks/opening-a-pr.md`. Don't push to main directly.
 
 ## Guardrails
 

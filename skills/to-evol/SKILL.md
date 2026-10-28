@@ -8,6 +8,8 @@ Produce an **evolution spec** for changing a shipped feature. Preserve the basel
 
 Read the project's agent instructions and follow their issue-tracker, triage-label, and domain-document pointers. Otherwise read `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` from the project root, as configured by `/setup-xstack`. Resolve the `ready-for-agent` role to its saved label/status instead of assuming the literal name. Reuse existing project configuration; if required publication configuration is missing, direct the user to `/setup-xstack` before publishing. Continue reachable specification work without inventing configuration or silently switching trackers.
 
+**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. 
+
 ## Process
 
 **Write tight.** One line per fact. Reference IDs and earlier sections instead of copying them. Omit optional fields that are empty. A section with nothing to say gets one line with its reason. Depth follows the risk level, never padding.
@@ -22,7 +24,7 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
    7. Referenced dependencies and callers, expanding only where evidence warrants.
    8. Relevant Git history when needed to resolve intent, divergence, or compatibility.
 
-   The order is a priority, not a serial chain. Read the sources that need no earlier finding (usually 2 to 5) in one batch of parallel calls, then expand into 6 to 8 from what they show. Expansion reads that do not depend on each other also go out together.
+   The order is a priority, not a serial chain. Read the sources that need no earlier finding (usually 2 to 5) in one batch of parallel calls, then expand into 6 to 8 from what they show. Expansion reads that do not depend on each other also go out together. Mechanical expansion goes through one `subtask` call rather than many tool calls: `--grep` for callers, shared writers, and story or criterion IDs over a file list, and JSONL `argv` tasks for `git log` or `git blame` per path.
 
    **Resume, don't restart.** If a draft of this evolution already exists (a local `# Evolution <NN>` section with a non-ready Status, a draft tracker issue, or this session's evidence map), continue from it and redo only the parts its new inputs change. A baseline from an earlier spec or draft counts as verified for the code and tests it cites only when `git diff --stat <its sha or date>..HEAD -- <those paths>` is empty. Re-read changed paths. Never reuse a baseline without that check.
 

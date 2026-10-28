@@ -8,6 +8,8 @@ This skill takes the current conversation context and codebase understanding and
 
 Read the project's agent instructions and follow their issue-tracker, triage-label, and domain-document pointers. Otherwise read `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` from the project root, as configured by `/setup-xstack`. Resolve the `ready-for-agent` role to its saved label/status instead of assuming the literal name. Reuse existing project configuration; if required publication configuration is missing, direct the user to `/setup-xstack` before publishing. This is configuration, not a new requirements interview.
 
+**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. Mechanical reads in steps 1 and 3 go through one `subtask` call each, never a loop of tool calls: `--grep` for domain terms, existing story IDs, or test seams over a file list from an earlier step, `--lines` to size candidate files, and JSONL `argv` tasks for independent CLI reads such as `git log` per path. Reading code to understand it stays your own reads.
+
 ## Process
 
 **Write tight.** One line per fact. No section restates another; reference story and criterion IDs instead. Omit optional fields that are empty. A section with nothing to say gets one line ("None."). Coverage stays complete. Length comes only from real stories and criteria.

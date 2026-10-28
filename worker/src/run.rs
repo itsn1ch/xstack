@@ -8,14 +8,17 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering::SeqCst};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
 
 pub const OUTPUT_TAIL_BYTES: usize = 4000;
 pub const DEFAULT_TIMEOUT_MS: u64 = 30 * 60_000;
-const POLL: Duration = Duration::from_millis(10);
-const SLOT_RETRY: Duration = Duration::from_millis(100);
+/// How often a running command checks for cancellation and timeout; its exit is noticed immediately.
+const CANCEL_POLL: Duration = Duration::from_millis(50);
+const SLOT_RETRY_MIN: Duration = Duration::from_millis(5);
+const SLOT_RETRY_MAX: Duration = Duration::from_millis(50);
 
 /// Runs a shell command through `sh -c` or passes an argument vector directly without shell quoting.
 #[derive(Clone, Debug)]
@@ -77,28 +80,35 @@ pub fn kill_group(pgid: i32) {
 }
 
 /// Blocks until one slot is free and returns its locked file; the lock is released when the file drops.
+/// Retries with a growing delay so a slot freed soon after the first attempt is taken quickly.
 fn acquire_slot(slots: &Slots) -> Option<File> {
-    loop {
-        for i in &slots.order {
-            let path = format!("{}.{i}", slots.lock_base.display());
-            let Ok(file) = OpenOptions::new()
+    let mut files = slots
+        .order
+        .iter()
+        .map(|i| {
+            OpenOptions::new()
                 .create(true)
                 .truncate(false)
                 .write(true)
-                .open(&path)
-            else {
-                return None;
-            };
-            // SAFETY: flock on a descriptor this function owns.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                return Some(file);
-            }
+                .open(format!("{}.{i}", slots.lock_base.display()))
+                .ok()
+        })
+        .collect::<Option<Vec<File>>>()?;
+    let mut delay = SLOT_RETRY_MIN;
+    loop {
+        // SAFETY: flock on descriptors this function owns.
+        let free = files.iter().position(
+            |file| unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
+        );
+        if let Some(i) = free {
+            return Some(files.swap_remove(i));
         }
-        sleep(SLOT_RETRY);
+        sleep(delay);
+        delay = (delay * 2).min(SLOT_RETRY_MAX);
     }
 }
 
-fn keep_tail(buffer: &Mutex<Vec<u8>>, chunk: &[u8]) {
+pub fn keep_tail(buffer: &Mutex<Vec<u8>>, chunk: &[u8]) {
     let mut out = buffer.lock().expect("output buffer");
     out.extend_from_slice(chunk);
     if out.len() > OUTPUT_TAIL_BYTES {
@@ -195,24 +205,29 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     .flatten()
     .collect();
 
+    let (exited, exit_status) = mpsc::channel();
+    let waiter = thread::spawn(move || {
+        let _ = exited.send(child.wait());
+    });
+
     let timeout = Duration::from_millis(options.timeout_ms);
     let mut timed_out = false;
     let mut killed = false;
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
+        match exit_status.recv_timeout(CANCEL_POLL) {
+            Ok(status) => break status.ok(),
+            Err(RecvTimeoutError::Timeout) => {
                 let cancelled = options.cancel.is_some_and(|c| c.load(SeqCst));
                 if !killed && (cancelled || started.elapsed() > timeout) {
                     timed_out = !cancelled;
                     killed = true;
                     kill_group(pgid);
                 }
-                sleep(POLL);
             }
-            Err(_) => break None,
+            Err(RecvTimeoutError::Disconnected) => break None,
         }
     };
+    let _ = waiter.join();
     for reader in readers {
         let _ = reader.join();
     }

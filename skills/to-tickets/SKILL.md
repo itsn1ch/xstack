@@ -10,7 +10,7 @@ Sketch types, function signatures, class shapes, and module boundaries, as the D
 
 Every design ships a **design contract**, per [`references/design-contract.md`](references/design-contract.md). It names each concept once with its kind and source of truth, states each public function's intent and invariants, and lists the flow in execution order. The contract is the source of truth for the code and for every ticket.
 
-**Files.** This skill adds no design files, sketch files, or rationale files to the repo. With a local tracker, an epic is one folder: `.scratch/<epic-slug>/spec.md` and `.scratch/<epic-slug>/issues/`. The design goes into the `# Design` section of that `spec.md`, per [`references/rationale-template.md`](references/rationale-template.md). Tickets go into `issues/`, one file each, led by `00-overview.md`: the epic's map with the folder and file tree to be built, the architecture, the ticket order, and a plain-words summary written with the **bro** skill. With a remote tracker, the design is one comment on the spec issue, and each ticket is an issue. In Implement mode the design goes into the PR description and the type sketch becomes the code itself.
+**Files.** This skill adds no design files, sketch files, or rationale files to the repo. With a local tracker, an epic is one folder: `.scratch/<epic-slug>/spec.md` and `.scratch/<epic-slug>/issues/`. The design goes into the `# Design` section of that `spec.md`, per [`references/rationale-template.md`](references/rationale-template.md). Tickets go into `issues/`, one file each, led by `00-overview.md`: the epic's map with the folder and file tree to be built, the architecture, the ticket order, and a plain-words summary written with the **bro** skill. With a remote tracker, the design is one comment on the spec issue, and each ticket is an issue. In Implement mode the design goes into the PR description, written through `/technical-writing` then `/unslop` per **PR prose** in poteto-mode's `playbooks/opening-a-pr.md`, and the type sketch becomes the code itself.
 
 ## Start
 
@@ -20,6 +20,8 @@ Pick the mode before Phase A, and name it in the todolist.
 - **Implement.** The default when another skill or playbook routes design-before-code here (poteto-mode's Feature, Bug fix, Perf issue, and Refactoring, or **no-comments**), unless that caller asks for tickets. Also used when a person's request asks to build, implement, or fix it now ("design this and implement it"). Phase D writes the code.
 
 State the chosen mode and the reason in the first reply line, so the invoker can correct it before Phase D. When the invoker points to an existing contract (the epic's `# Design` section), or the work changes no function or type, skip Phases A to C and start at Phase D. An evolution spec from **to-evol** with Contract Impact does not skip. Ground the existing feature, then run Phase B over the changed parts of its contract.
+
+**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. Phase A's mechanical grounding (callers, usages, and existing names over a file list) and Phase D's tracker calls go through `subtask`.
 
 Open a todolist with one entry per phase before starting.
 

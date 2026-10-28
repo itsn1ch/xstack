@@ -292,7 +292,7 @@ The worker has no tiers. The Easy, Medium, and High tiers in `poteto-mode` estim
 - [`blast-radius`](skills/blast-radius/SKILL.md): find what a change could break outside its diff.
 - [`interrogate`](skills/interrogate/SKILL.md): adversarial review by several models.
 - [`no-comments`](skills/no-comments/SKILL.md): review comments and fix the accepted findings.
-- [`judgment`](skills/judgment/SKILL.md): judge finished work before a commit or PR (the feature against the ask, the writing, the spacing) and nag until it is clean. Read-only.
+- [`judgment`](skills/judgment/SKILL.md): judge each finished ticket once in one background subagent before a push or PR (the feature against the ask, consistency with the existing codebase, the writing, the spacing) and nag until it is clean. Read-only.
 - [`benchmark-checklist`](skills/benchmark-checklist/SKILL.md): vet a performance measurement before you report it.
 - [`correct`](skills/correct/SKILL.md): make repeated agent mistakes impossible with structure, types, lints, or tests.
 

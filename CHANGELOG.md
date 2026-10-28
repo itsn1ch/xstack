@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Keep widened work fast in poteto-mode. Define a ticket done line, queue findings past it and fix them as one batch with one round of gates, preflight tools and permissions before the first edit, act on a red baseline as soon as it lands, and isolate the state of concurrent test runs in one checkout. Carry the rules into judgment fix rounds, code delegate briefs, the Feature checkpoint and reply, PR-opening subagents, the pitfalls guide, and the Indonesian guide. Add the `fast-widening-batch` eval.
+- Make `subtask` aggressive and continuous in poteto-mode: two independent mechanical items are enough for a call, every phase of a task sweeps through it, and results feed the next run without claiming more than the hardware share. Run `judgment` once per ticket or task as one background subagent on a fixed SHA range that reuses `worker` results, and make it check consistency with the existing codebase, such as a new button that diverges from an existing one.
 - Add a shared `subtask skill` entry point for confined workspace inspection and explicitly authorized replacements, with a shared skill instruction and host-permission fallback.
 - Restore upstream poteto-mode grounding, design, figure-it-out routing, and playbook ownership while retaining xstack's subtask, worker, and cross-harness support. Add a to-tickets design-only handoff so calling playbooks retain their implementation checkpoints.
 - Apply the shared mechanical-sweep policy to investigation, verification, comment-cleanup, recall, and related principle skills.

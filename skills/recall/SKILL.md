@@ -10,6 +10,8 @@ disable-model-invocation: true
 
 Keep it tight and on-topic. Read only what the in-scope threads need, then stop.
 
+For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going` and actual item, failure, and remaining-finding counts. Keep transcript searches within the workspace and time window selected below.
+
 Your context lives in two records. Your own chat history holds what you did and decided. The shared record holds everything that happened around the same code under other names: the symptoms users keep reporting, the fixes that shipped and got reverted, the errors still firing in prod. That second record is what the **why** skill searches, across source control, the issue tracker, chat and issue channels, long-form docs, and error tracking. A feature with a long bug tail keeps most of its story there, so don't reconstruct it from your transcripts alone.
 
 Transcripts live where your harness keeps them. Each file is JSONL. Find the active workspace's directory for your harness. If you can't tell which harness you are, check which of these exist for this workspace:

@@ -8,7 +8,13 @@ Produce an **evolution spec** for changing a shipped feature. Preserve the basel
 
 Read the project's agent instructions and follow their issue-tracker, triage-label, and domain-document pointers. Otherwise read `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` from the project root, as configured by `/setup-xstack`. Resolve the `ready-for-agent` role to its saved label/status instead of assuming the literal name. Reuse existing project configuration; if required publication configuration is missing, direct the user to `/setup-xstack` before publishing. Continue reachable specification work without inventing configuration or silently switching trackers.
 
-**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. 
+**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going.
+
+**Divide by judgment, not ceremony.** The root owns scope, evidence integration, unresolved conflicts, readiness, and publication verification. Delegate bounded, genuinely independent evidence analysis or drafting when it saves work: give each delegate the same relevant request, decisions, baseline evidence, contract, and explicit scope; require cited findings, uncertainties, and affected IDs. Assign disjoint draft sections if delegates write, and let them finish their assigned detail rather than rewriting it at the root. Integrate their results against the evidence and resolve conflicts before committing criteria. Do not spawn agents for mechanical work or force a split when the work is coupled or too small. Ordinary specification work does not require a design arena; implementation design choices not needed for the behavioral spec belong to **to-tickets**.
+
+Batch independent mechanical reads, searches, reference checks, and draft processing with `subtask` per **Subtasks**, retaining results needed to substantiate decisions. Use `worker fast` for independent affected checks when executable checks are applicable and `worker run` for required full checks, per **Tests and verification**; run independent checks together. These tools do not replace judgment, evidence review, or publication readback. Pipeline independent root work while delegates and checks run; do not poll or wait when other work is ready.
+
+For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch the in-scope mechanical searches with `--keep-going`, resweep affected scope after edits, and report observed items, failures, and remaining findings. The agent decides what findings mean.
 
 ## Process
 
@@ -34,10 +40,10 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
 
    Select a level from evidence; record the level and its reason in Context. Escalate whenever new evidence reveals greater risk. Request size is not evidence; never downgrade to save tokens.
 
-   | Level | Evidence and required depth |
-   |---|---|
-   | **SMALL** | Localized change with no meaningful behavioral, contract, migration, security, or compatibility impact. Verify the relevant baseline and precise delta; check hidden impacts before using this path. Keep stories, criteria, and required sections concise; avoid unnecessary questions. |
-   | **STANDARD** | Existing behavior, multiple journeys, or internal contracts change without a CRITICAL trigger. Verify the affected baseline and dependencies, complete delta, contract impact, compatibility, and regression coverage. |
+   | Level        | Evidence and required depth                                                                                                                                                                                                                                                                                                                                                                                    |
+   | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | **SMALL**    | Localized change with no meaningful behavioral, contract, migration, security, or compatibility impact. Verify the relevant baseline and precise delta; check hidden impacts before using this path. Keep stories, criteria, and required sections concise; avoid unnecessary questions.                                                                                                                       |
+   | **STANDARD** | Existing behavior, multiple journeys, or internal contracts change without a CRITICAL trigger. Verify the affected baseline and dependencies, complete delta, contract impact, compatibility, and regression coverage.                                                                                                                                                                                         |
    | **CRITICAL** | Persistent data, financial calculations, authorization/permissions, public APIs, state transitions, shared invariants, concurrency, migrations, distributed workflows, or irreversible operations are affected. Trace relevant behavior end to end; verify affected invariants, existing data and active workflows, compatibility, failure/recovery, and rollback feasibility. Support criteria with evidence. |
 
 1. **Establish the baseline and context card.** Actual code and tests establish today's behavior; where an earlier spec disagrees, code is the baseline. Record the disagreement and its evidence in Further Notes. This describes reality, not permission to perpetuate a defect or change a promised outcome silently: unresolved intent or compatibility conflicts return to clarification. If no earlier spec exists, say the baseline comes from code and tests alone.
@@ -81,6 +87,8 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
 
 5. **Check traceability and stop investigating.** Verify `User request → Baseline → Delta → Story → Acceptance criteria → Contract impact → Test coverage` using concise references within the existing sections, not a second narrative or mandatory extra document. Every New, Changed, or Removed item needs an observable story/criterion; every at-risk Unchanged item needs regression coverage. Each affected contract element and compatibility outcome must link to those IDs, or have a supported no-impact reason.
 
+   The root checks the integrated result, including delegated findings and any conflicting evidence. Run applicable independent mechanical checks through `worker` in parallel; distinguish their results from planned checks and from the root's evidence and traceability review. A passing command alone cannot establish behavioral sufficiency or readiness.
+
    Investigation is sufficient when the affected baseline is verified, every in-scope delta is classified, significant uncertainties are resolved or explicitly deferred, affected invariants are identified, compatibility outcomes are defined, criteria are objectively testable, and regression coverage addresses meaningful risks. Stop at that boundary; unrelated implementation detail adds no requirement. Deferrals permit completion of a draft, not readiness.
 
 6. **Publish safely and verify.** Retain all template sections and contract fields at every level; SMALL may use a sentence or a supported “Unchanged / Not applicable” with a baseline reference. Reference unchanged content instead of duplicating it.
@@ -92,6 +100,8 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
    For a remote tracker, use configured operations to create the evolution issue (link operations that need only its identifier run together in one batch), reference the original and earlier evolutions in Feature, and link to the original and previous evolution without rewriting historical spec bodies. Apply the mapped ready label/status only after content and required links are verified. No additional triage is needed.
 
    Read back the local file or remote issue and verify its complete body, stable references/numbering, required links, and actual label/status. Report its path/URL and verified status. A failed or partial operation is not publication success: inspect the created artifact before retrying to avoid duplicates; withhold readiness until required operations succeed.
+
+   In the handoff, report the actual number of subagents, `subtask` batches and work performed, and `worker` invocations and checks, including zero where none ran. Distinguish completed checks and verified publication from pending, failed, or unperformed work; never claim readiness or publication success without the required evidence and readback.
 
 The tickets come from **to-tickets**, which updates the design contract first and then slices only the delta. In the same session, to-tickets reuses this run's evidence map and Baseline as its Phase A grounding, so it does not re-read the feature.
 
@@ -124,8 +134,8 @@ How the feature changes, from the user's perspective. Say what stays the same as
 
 One table, one row per story, in User Stories order. Link each row to the request/decision it covers; use concise baseline → proposed outcome comparisons.
 
-| Story | Class | Change in one line |
-|---|---|---|
+| Story       | Class                           | Change in one line                                                     |
+| ----------- | ------------------------------- | ---------------------------------------------------------------------- |
 | <stable ID> | <New/Changed/Unchanged/Removed> | <request reference; baseline → proposed outcome or preserved behavior> |
 
 ## User Stories

@@ -19,9 +19,13 @@ Pick the mode before Phase A, and name it in the todolist.
 - **Tickets.** The default when a person invokes `/to-tickets`, unless the request asks to build, implement, or fix it now. Also used whenever the work does not fit one fresh context window, or when a caller such as Multi-phase plan asks for a ticket set. Phase D publishes tickets per [`references/tickets.md`](references/tickets.md) and writes no implementation code.
 - **Implement.** The default when another skill or playbook routes design-before-code here (poteto-mode's Feature, Bug fix, Perf issue, and Refactoring, or **no-comments**), unless that caller asks for tickets. Also used when a person's request asks to build, implement, or fix it now ("design this and implement it"). Phase D writes the code.
 
-State the chosen mode and the reason in the first reply line, so the invoker can correct it before Phase D. When the invoker points to an existing contract (the epic's `# Design` section), or the work changes no function or type, skip Phases A to C and start at Phase D. An evolution spec from **to-evol** with Contract Impact does not skip. Ground the existing feature, then run Phase B over the changed parts of its contract.
+State the chosen mode and the reason in the first reply line, so the invoker can correct it before Phase D. Skip Phases A to C only when the invoker points to an existing contract that the work implements without changing it, or when the work changes no function, type, or contract entry. When an existing contract needs a change, including an evolution spec from **to-evol** with Contract Impact, ground the existing feature and run Phase B over the changed parts of its contract.
 
-**Subtasks by default.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. Phase A's mechanical grounding (callers, usages, and existing names over a file list) and Phase D's tracker calls go through `subtask`.
+**Mechanical work and ownership.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. Batch independent mechanical grounding reads, searches, references, draft processing, and tracker calls through `subtask`; keep dependency-ordered publication in waves. Do not spawn subagents for mechanical work or force a split without independent meaningful work. The root owns scope, design selection, conflict resolution, integration, and final verification; delegates own their assigned detailed writing, which the root does not take over. Give concurrent writers disjoint outputs and resolve shared changes at integration.
+
+Use `worker` per poteto-mode for independent checks in parallel: affected checks while iterating and all required full gates at their prescribed boundaries. Preserve TDD red/green, formatting, contract checks, and verification on the actual surface; do not claim completion while required checks are pending or failed. Pipeline independent root work while delegates and checks run; consume their results when needed, not by polling.
+
+For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch the in-scope mechanical searches with `--keep-going`, resweep affected scope after edits, and report observed items, failures, and remaining findings. The agent decides what findings mean.
 
 Open a todolist with one entry per phase before starting.
 
@@ -46,12 +50,12 @@ Run the **arena** skill with the design-sketch task and the Phase A grounding ar
 - No worktrees and no output files. Each runner returns its whole candidate in its reply, in the compact shape `runner-prompt.md` fixes.
 - All runners spawn in one message. The root reads each candidate the moment it returns.
 - The rubric is fixed: interface depth, contract checks pass, invariants enforced by the strongest mechanism, flow order, red-flag screen. Do not derive a new one per run.
-- When the candidates converge on one shape, ship the consensus shape and skip the cross-judge, per arena Phase E. Convergence satisfies **Design it twice** below only when each candidate's Decision lines name a structurally distinct whole shape it considered and rejected. Otherwise spawn one more runner, told to produce a different whole shape, and compare. When they diverge, spawn the cross-judge as soon as the last candidate returns and score in parallel with it.
-- One round, plus that single extra runner when needed. A second full round runs only when every candidate fails the contract checks or the candidates diverge so far that Phase A was under-specified.
+- When the candidates converge on one shape, ship the consensus shape and skip the cross-judge, per arena Phase E, only when at least two independent candidates each name a structurally distinct whole shape they considered and rejected. Otherwise spawn one more independent runner, told to consider a different whole shape, and compare. When they diverge, spawn the cross-judge as soon as the last candidate returns and score in parallel with it.
+- One round, plus that single extra runner when needed. If fewer than two candidates satisfy the complete-candidate and whole-shape exploration requirements, stop and report the design gate blocked; do not implement or publish tickets. A second full round runs only when every candidate fails the contract checks or the candidates diverge so far that Phase A was under-specified.
 
 Take the runners from the `to-tickets runners` line in the pstack settings file, or from the older `architect runners` line when only that exists (`~/.cursor/rules/pstack-models.mdc` in Cursor, `~/.claude/rules/pstack-models.md` in Claude Code, `~/.agents/pstack-models.md` in other harnesses), in place of the `arena runners` line. If the file or that line is missing, use `claude-opus-5-5-xhigh` and `grok-4.7-xhigh-fast`. Alias and rejected entries follow the runner rules in the **arena** skill's Phase A.
 
-Design it twice. Require at least two structurally distinct candidates before synthesis, even when the first looks sufficient. This is the **exhaust-the-design-space** principle skill made concrete. Whole-shape alternatives, not point fixes inside one shape.
+Design it twice. Require at least two independent complete candidates before synthesis, given the same task, requirements, grounding, and existing contract. Each must include the types and signatures, data ownership, invariants, ordered flows, and a structurally distinct whole-shape alternative it considered and rejected. Their chosen shapes may converge; independence and whole-shape exploration, not artificial disagreement, satisfy the **exhaust-the-design-space** principle skill. Point fixes inside one shape are not whole-shape alternatives.
 
 Screen every candidate against [`references/design-red-flags.md`](references/design-red-flags.md) before synthesis. Assume the next contributor is an agent that sees only the files it opened, copies the nearest example, and takes the shortest path that compiles. Prefer the design where a change that looks right from one file is right for the whole repo.
 
@@ -61,7 +65,7 @@ While the runners work, the root pipelines per poteto-mode's **Fastest route**. 
 
 When this run changes an existing contract (an evolution spec, a pushback, or a follow-up), the runners sketch only the changed vocabulary, functions, invariants, and flow steps plus the parts that consume them. Unaffected contract entries carry forward unchanged and still pass the contract checks.
 
-Arena returns one synthesized design package. Its synthesis decision fills the Design section's "Decision" lines.
+The root compares the candidates, selects a base, identifies consensus worth preserving, and resolves conflicts and grafts without changing unaffected contract entries. For nontrivial synthesis, delegate the detailed synthesis to an agent with all candidates, the selected base, consensus, explicit conflicts and their resolutions, grounding, requirements, unchanged contract entries, and the scope and output bounds. The root integrates the result and owns any unresolved decision; it does not rewrite the delegate's detailed package. For a genuinely trivial synthesis the root may integrate directly. Arena returns one synthesized design package; its synthesis decision fills the Design section's "Decision" lines.
 
 Write the synthesized design's contract last, after the base and grafts are chosen. Graft names from different candidates into one vocabulary, so no synonym survives synthesis. Run the contract checks in `references/design-contract.md`. A failed check sends the design back into synthesis, not into implementation.
 
@@ -77,15 +81,17 @@ If the human pushes back on the shape (in a checkpoint or after the fact), treat
 
 ## Phase D: Implement or publish tickets
 
-**Tickets mode.** Write the Design section (local: `# Design` in the epic's `spec.md`, created with only a title and that section when no spec exists; remote: one comment on the spec issue), then follow [`references/tickets.md`](references/tickets.md). Each ticket carries its own copy of the types, functions, and invariants it needs, so an implementer reads one ticket and the contract, nothing else. Tickets ship only after the Rust checker `scripts/check-tickets` prints `OK`, proving the chain from spec criteria through every ticket handoff to the final result has no gap. The tickets implement the design, so this run writes no implementation code. Phase E still applies to whoever implements a ticket.
+**Tickets mode.** Write the Design section (local: `# Design` in the epic's `spec.md`, created with only a title and that section when no spec exists; remote: one comment on the spec issue), then follow [`references/tickets.md`](references/tickets.md). Root determines slice boundaries, ownership and dependency edges; delegate independent substantial ticket drafting with the chosen contract, applicable criteria, boundaries and disjoint outputs. Batch mechanical draft processing and tracker operations with `subtask`, while retaining the ordered waves and approval in the reference. Each ticket carries its own copy of the types, functions, and invariants it needs, so an implementer reads one ticket and the contract, nothing else. Tickets ship only after the Rust checker `scripts/check-tickets` prints `OK`, proving the chain from spec criteria through every ticket handoff to the final result has no gap. The tickets implement the design, so this run writes no implementation code. Phase E still applies to whoever implements a ticket.
 
 **Implement mode.** Implement in flow order. Build the steps of each flow from step 1 upward, so every function is written after the functions that produce its inputs. Replace `not implemented` bodies with code, pseudocode with logic. Each invariant's Proof is written with the first function that must preserve it. The sketch and its contract bind the implementation. Deviations from it are signal to surface, not friction to absorb silently. If a function needs a parameter the sketch didn't anticipate, ask whether the sketch was wrong, the requirement was missed, or the implementation is overreaching. A deviation that changes a vocabulary name, an intent, an invariant, or a flow step is a contract change. Update the contract in the same commit and rerun its checks.
+
+For independent implementation slices, the root assigns disjoint ownership, the relevant contract, flow dependencies, and checks to delegates; it integrates results and resolves conflicts rather than taking over their detailed writing. Do not split dependent steps merely to create parallelism. Run affected checks through `worker` during iteration and the required full gates on the integrated result, alongside other independent checks where possible, without weakening the TDD, formatter, contract, or actual-surface gates.
 
 ## Phase E: Scrap when the architecture is wrong
 
 If implementation keeps producing friction the sketch can't absorb, throw the sketch out. Don't bolt fixes onto a wrong design, per the **redesign-from-first-principles** and **fix-root-causes** principle skills.
 
-The signal is a *pattern*, not single instances. Tells:
+The signal is a _pattern_, not single instances. Tells:
 
 - The same shape of workaround appearing repeatedly across unrelated code.
 - Multiple unrelated edge cases that all need special-case branches.
@@ -106,3 +112,5 @@ When you scrap:
 ## Outputs
 
 The caller's usage is written first and the type sketch derived from it. The Design section, shaped per `references/rationale-template.md`, holds the usage, the type sketch, the contract, and the decision. In tickets mode, the published ticket set is the other output. No other file is written.
+
+Report the actual number of subagents, the `subtask` batches and work they covered, and the `worker` invocations and checks, including zero where none ran. Report observed results and any pending, failed, or blocked gates; never describe an unverified result as complete.

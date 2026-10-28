@@ -14,6 +14,8 @@ Defer to Comment Sicko's fresh perspective.
 
 Use the caller's files or diff. Otherwise use the current diff against the base branch, default `main`, including the working tree.
 
+For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going`, post-edit resweeps, and actual item, failure, and remaining-finding counts. Comment Sicko and the root still judge whether each comment can be removed.
+
 ## Steps
 
 1. Spawn `Task` with `subagent_type: "comment-sicko"`. Pass the scope. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill. Do not restate its rules. If your harness doesn't have comment-sicko registered as a subagent (any harness other than Cursor with the pstack plugin), spawn a general subagent instead: `Agent` in Claude Code (`subagent_type: general-purpose`), `task` in OpenCode (`subagent_type: general`), `spawn_agent` in Codex. Its prompt is [`references/comment-sicko.md`](references/comment-sicko.md) verbatim, then the scope. If your harness has no subagent tool, as in Pi without an extension, run that prompt yourself in a fresh pass over the scope.

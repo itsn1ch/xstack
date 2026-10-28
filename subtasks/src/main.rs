@@ -9,10 +9,17 @@
 //!           [--tasks <jsonl or item list>] [--out <jsonl>] [--keep-going] [--timeout-ms N] [--per-host N]
 //!           [--retries N] [--mem-mb N] [--cpu N] [--net N] [--file N] [--show N]
 //!                                Run one task per stdin item for a template flag, or one per JSONL line
-//!                                ({"sh": ..}, {"argv": [..]}, {"http": {"url": ..}},
-//!                                {"grep": {"path": .., "pattern": ..}}, {"hash": ..}, {"lines": ..}) otherwise.
+//!                                ({"sh": ..}, {"argv": [..]}, {"browser": {"session": "name",
+//!                                "commands": [["open", "URL"], ["snapshot", "-i"]]}},
+//!                                {"http": {"url": ..}}, {"grep": {"path": .., "pattern": ..}},
+//!                                {"hash": ..}, {"lines": ..}) otherwise.
+//!                                Browser commands run sequentially, stopping on failure; each action
+//!                                has the normal timeout. Same-session tasks in this run never overlap,
+//!                                and a failed task prevents later reuse in the run. Session state is not
+//!                                coordinated across processes; timed-out daemon actions may continue.
+//!                                Browser sessions persist. Browser tasks share the CPU pool and --cpu cap.
 //!                                A --sh command with {} runs once per item; without it, 32 items per process.
-//!                                Shell, HTTP, and file tasks have separate pools. The cores are split evenly
+//!                                CPU, HTTP, and file tasks have separate pools. The cores are split evenly
 //!                                with the verification worker and every other subtask run; the HTTP and file
 //!                                pools are split across subtask runs. Results go to a JSONL file; stdout
 //!                                prints only the summary and the first failures.
@@ -232,15 +239,19 @@ fn probe(args: &Args) -> Result<u8> {
     Ok(0)
 }
 
-/// Streams the non-empty lines of the task file, or of stdin, without holding them.
-fn read_lines(source: Option<&Path>) -> Result<Box<dyn Iterator<Item = String> + Send>> {
-    let reader: Box<dyn BufRead + Send> = match source {
+fn input_reader(source: Option<&Path>) -> Result<Box<dyn BufRead + Send>> {
+    Ok(match source {
         Some(path) => Box::new(io::BufReader::new(
             std::fs::File::open(path)
                 .map_err(|e| format!("cannot read {}: {e}", path.display()))?,
         )),
         None => Box::new(io::BufReader::new(io::stdin())),
-    };
+    })
+}
+
+/// Streams the non-empty lines of the task file, or of stdin, without holding them.
+fn read_lines(source: Option<&Path>) -> Result<Box<dyn Iterator<Item = String> + Send>> {
+    let reader = input_reader(source)?;
     Ok(Box::new(
         reader
             .lines()
@@ -260,12 +271,38 @@ fn sub_tasks(args: &Args) -> Result<Box<dyn Iterator<Item = engine::Input> + Sen
     if templates.iter().filter(|&&t| t).count() > 1 {
         return Err("subtask takes one of --sh, --http, --grep, --hash, --lines".into());
     }
+    if !templates.iter().any(|&t| t) {
+        let mut lines = input_reader(args.tasks.as_deref())?.lines().enumerate();
+        let mut stop = false;
+        return Ok(Box::new(std::iter::from_fn(move || {
+            if stop {
+                return None;
+            }
+            loop {
+                let (i, line) = lines.next()?;
+                match line {
+                    Ok(line) if line.trim().is_empty() => continue,
+                    Ok(line) => {
+                        return Some(
+                            serde_json::from_str(&line).map_err(|_| {
+                                format!("task {}: invalid JSON or task schema", i + 1)
+                            }),
+                        )
+                    }
+                    Err(error) => {
+                        stop = error.kind() != io::ErrorKind::InvalidData;
+                        return Some(Err(format!("task {}: cannot read input", i + 1)));
+                    }
+                }
+            }
+        })));
+    }
     let items = read_lines(args.tasks.as_deref())?;
     if let Some(template) = &args.sh {
         return Ok(Box::new(engine::shell_tasks(template, items).map(Ok)));
     }
     let method = args.method.clone().unwrap_or_else(|| "GET".into());
-    let (http, grep, hash, lines) = (args.http, args.grep.clone(), args.hash, args.lines);
+    let (http, grep, hash) = (args.http, args.grep.clone(), args.hash);
     let save_dir = args.save_dir.clone();
     let task = move |(i, item): (usize, String)| -> engine::Input {
         Ok(if http {
@@ -283,10 +320,8 @@ fn sub_tasks(args: &Args) -> Result<Box<dyn Iterator<Item = engine::Input> + Sen
             }
         } else if hash {
             Task::Hash(item)
-        } else if lines {
-            Task::Lines(item)
         } else {
-            serde_json::from_str(&item).map_err(|e| format!("task {}: {e}: {item}", i + 1))?
+            Task::Lines(item)
         })
     };
     Ok(Box::new(items.enumerate().map(task)))

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Migrasikan seluruh tool `poteto-mode/scripts` ke Rust: `orch`, `watch-pr`, `check-plan`, dan `worktree-audit`. Pertahankan format store dan keluaran JSON, pindahkan tes perilaku ke Cargo, perbarui perintah instalasi dan playbook, serta hapus runtime dan konfigurasi Bun/Node.js.
 - swarm step 4 kini hanya memakai hardware cap dan test slot untuk swarm verifikasi; tier dan budget cap hanya untuk slice penulisan kode poteto-mode, sesuai Subagents di poteto-mode. diving mengikuti aturan yang sama.
 - diving wajib menuntaskan root cause: UNKNOWN hanya status kerja, setiap fakta yang hilang dikejar lewat loop resolusi dan eskalasi delapan langkah (kedalaman investigasi, bukan hardware); diagnosis selesai hanya dengan enam syarat; verdict REPRODUCED dan NOT REPRODUCED diganti BLOCKED untuk blocker objektif yang dibuktikan. Bug fix step 2 tidak lagi menyuruh membuat hipotesis.
 - Sederhanakan diving untuk model non-frontier: prosedur tetap Locate, Trace, Compare, Isolate, Verify, History, Stop; tahap hipotesis dihapus; first wrong hop kembali jadi default dengan bisection berbatas; aturan missing operation; setiap level verifikasi dijalankan lewat swarm dengan batas hardware dan fallback.

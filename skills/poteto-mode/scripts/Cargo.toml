@@ -1,0 +1,19 @@
+[package]
+name = "poteto-tools"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Plan checks, orchestration bookkeeping, pull request watching, and worktree audits."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+libc = "0.2"
+url = "2"
+serde_json = { version = "1", features = ["preserve_order"] }
+clap = { version = "4", features = ["derive"] }
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -95,6 +95,22 @@ The `skills` installer installs skills. It does not register subagents or plugin
 
 Plugin support depends on your agent app. Cursor-specific features may not work elsewhere. For Claude Code, read the [command and tool adapter](docs/harness/claude-code.md).
 
+### Install the poteto-mode command-line tools
+
+The `orch`, `watch-pr`, `check-plan`, and `worktree-audit` commands are Rust binaries. From the package directory, install them with:
+
+```sh
+cargo install --locked --path skills/poteto-mode/scripts
+```
+
+The build requires Rust and Cargo. Add Cargo's binary directory to `PATH` if it is not there already. The tools do not require Bun, Node.js, or shell wrappers. `watch-pr` requires an authenticated GitHub CLI. `orch frontier set` uses Git and the selected `gh` or `origin` CLI. `worktree-audit` uses Git and reads PR metadata through Origin or GitHub CLI when available. Existing `orch` stores keep their TSV, JSON, and Markdown formats.
+
+Run the tools' tests with:
+
+```sh
+cargo test --locked --manifest-path skills/poteto-mode/scripts/Cargo.toml
+```
+
 ## Set up your project
 
 Open the project you want to work on, not the Xstack installation directory. Run:

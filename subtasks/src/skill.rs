@@ -384,7 +384,9 @@ pub fn run(args: &[String]) -> Result<u8> {
             || id.len() > 128
             || operation.is_empty()
             || operation.len() > 64
-            || !operation.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            || !operation
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         {
             rows[position] =
                 Some(json!({"skill":skill,"status":"invalid","error":"invalid operation"}));
@@ -402,11 +404,12 @@ pub fn run(args: &[String]) -> Result<u8> {
             );
             continue;
         }
-        let request: Request = match serde_json::from_value(value) {
+        let request: Request = match Request::deserialize(&value) {
             Ok(request) => request,
             Err(_) => {
-                rows[position] =
-                    Some(json!({"skill":skill,"id":id,"operation":operation,"status":"invalid","error":"invalid operation"}));
+                rows[position] = Some(
+                    json!({"skill":skill,"id":id,"operation":operation,"status":"invalid","error":"invalid operation"}),
+                );
                 continue;
             }
         };

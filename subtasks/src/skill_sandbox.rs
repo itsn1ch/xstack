@@ -6,10 +6,16 @@ use std::path::Path;
 
 #[cfg(target_os = "linux")]
 pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
-    const READ: u64 = (1 << 2) | (1 << 3);
-    const WRITE: u64 = (1 << 1) | (1 << 5) | (1 << 8) | (1 << 14);
+    const WRITE_FILE: u64 = 1 << 1;
+    const READ_FILE: u64 = 1 << 2;
+    const READ_DIRECTORY: u64 = 1 << 3;
+    const REMOVE_FILE: u64 = 1 << 5;
+    const MAKE_REGULAR_FILE: u64 = 1 << 8;
     const REFER: u64 = 1 << 13;
-    const ALL: u64 = (1 << 15) - 1;
+    const TRUNCATE_FILE: u64 = 1 << 14;
+    const READ: u64 = READ_FILE | READ_DIRECTORY;
+    const WRITE: u64 = WRITE_FILE | REMOVE_FILE | MAKE_REGULAR_FILE | TRUNCATE_FILE;
+    const ALL: u64 = (TRUNCATE_FILE << 1) - 1;
     #[repr(C)]
     struct Ruleset {
         handled_access_fs: u64,

@@ -25,6 +25,8 @@ State the chosen mode and the reason in the first reply line, so the invoker can
 
 Use `worker` per poteto-mode for independent checks in parallel: affected checks while iterating and all required full gates at their prescribed boundaries. Preserve TDD red/green, formatting, contract checks, and verification on the actual surface; do not claim completion while required checks are pending or failed. Pipeline independent root work while delegates and checks run; consume their results when needed, not by polling.
 
+For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch the in-scope mechanical searches with `--keep-going`, resweep affected scope after edits, and report observed items, failures, and remaining findings. The agent decides what findings mean.
+
 Open a todolist with one entry per phase before starting.
 
 1. Ground

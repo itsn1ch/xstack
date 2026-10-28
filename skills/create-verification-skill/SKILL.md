@@ -1,6 +1,6 @@
 ---
 name: create-verification-skill
-description: "Generate a project-local verification skill that drives your app the way a user does — any language, framework, or platform. Use for /create-verification-skill, \"make a control skill for this repo\", or when a project has no scripted way to prove UI/CLI/service behavior."
+description: 'Generate a project-local verification skill that drives your app the way a user does — any language, framework, or platform. Use for /create-verification-skill, "make a control skill for this repo", or when a project has no scripted way to prove UI/CLI/service behavior.'
 disable-model-invocation: true
 ---
 
@@ -11,6 +11,8 @@ Every serious project needs a scripted way to drive the real app and prove behav
 ## 0. Subtask and worker are mandatory
 
 Every verification skill this generates, and this generator itself, runs its mechanical work through the two xstack binaries: `subtask` for fan-out (per **Subtasks** in poteto-mode) and `worker` for shared CPU slots and gates (per **Tests and verification** and **Background verification** in poteto-mode). Driving the app the way a user does stays the agent's own work.
+
+For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going`, post-edit resweeps, and actual item, failure, and remaining-finding counts. If a tool is unavailable, continue safe investigation and report the failure; the generation prerequisite below still applies.
 
 Before step 1, run `<xstack root>/subtasks/target/release/subtask hot`, unless a `SUBTASK HOT` line is already in context. On `SUBTASK COLD`, start the printed `cargo build` commands in the background and do step 1 while they build. Step 2 waits for `SUBTASK HOT`. Without Cargo, stop and report the generation as blocked with the install hint. A verification skill without these tools is not generated.
 

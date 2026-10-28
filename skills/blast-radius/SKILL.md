@@ -12,6 +12,8 @@ Companion to `how` and `why`. `how` tells you what the code does. `why` tells yo
 
 Listing the callers is not the job. The agent can grep those in a second. The job is the breakage grep won't show you.
 
+For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going` and actual item, failure, and remaining-finding counts. The agent evaluates risk; a search result is not a safety verdict.
+
 ## Don't trust your own writeup
 
 A blast-radius writeup that sounds right is worthless. It reads as convincing whether or not it's true. So don't hand back the writeup. Find the one or two facts the whole thing depends on and prove them by running code.

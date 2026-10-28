@@ -12,6 +12,8 @@ disable-model-invocation: true
 
 Diving is diagnosis only. It never fixes, refactors, or leaves a change in the user's tree. A fix goes to poteto-mode's Bug fix playbook with this report as its step 2. The report carries enough evidence that the fixer does not retrace the path.
 
+For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch in-scope mechanical searches with `--keep-going` and report observed items, failures, and remaining findings. The agent decides what findings mean. Diving is read-only; any post-edit sweep belongs to the fixing workflow.
+
 ## What you are looking for
 
 **First wrong hop.** The earliest point in the execution flow where an output violates its source of truth while its inputs are still correct. A wrong hop with a wrong input is downstream of the cause, not the cause. Use this for linear flows, which is the default.
@@ -126,6 +128,7 @@ Find the earliest hop that violates its contract. Whenever a suspected boundary 
   - No other path on the trace supplies it.
 
   Absent code has no line number. Cite the verified caller, the enclosing branch, or the surrounding code where the operation belongs.
+
 - **Non-linear flow.** Find the earliest interaction or invariant that breaks, such as a read and a dependent write separated by an `await`.
 
 An inconclusive first pass is not a result. If the earliest boundary is not yet established, escalate per **Resolve every open fact**. Report a narrowest verified range only under an objective blocker, with its verified upstream end and its verified violating end.
@@ -169,12 +172,12 @@ Every check at every level runs through the **swarm** skill. The root never runs
 
 Pick each check's level from this ladder. Use the cheapest level that can settle the fact.
 
-| Level | What a worker runs | When |
-|---|---|---|
-| **0. Static** | Reads source, contracts, schemas, call sites, and existing tests for one boundary. No execution. | Always first. Default for every check. |
-| **1. Probe** | One focused unit test, an isolated script, a pure-function call, or one assertion. | When static reading cannot settle the fact. |
-| **2. Focused integration** | The smallest existing integration test for the boundary, with existing fakes where they keep the mechanism. | Only when the mechanism needs a real integration. |
-| **3. Full system** | The running app or an end-to-end suite. | Exceptional. Needs a stated reason and the user's permission first. |
+| Level                      | What a worker runs                                                                                          | When                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **0. Static**              | Reads source, contracts, schemas, call sites, and existing tests for one boundary. No execution.            | Always first. Default for every check.                              |
+| **1. Probe**               | One focused unit test, an isolated script, a pure-function call, or one assertion.                          | When static reading cannot settle the fact.                         |
+| **2. Focused integration** | The smallest existing integration test for the boundary, with existing fakes where they keep the mechanism. | Only when the mechanism needs a real integration.                   |
+| **3. Full system**         | The running app or an end-to-end suite.                                                                     | Exceptional. Needs a stated reason and the user's permission first. |
 
 Choose the checks by what the boundary needs:
 

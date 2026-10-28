@@ -70,15 +70,15 @@ If you are running from the parent directory of the Xstack repository, you can i
 
 ### Installation options
 
-| Flag | Effect |
-|---|---|
-| `-l`, `--list` | List the skills, then exit without installing. |
-| `-s`, `--skill <names…>` | Install these skills. `'*'` installs all. |
+| Flag                      | Effect                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `-l`, `--list`            | List the skills, then exit without installing.                                  |
+| `-s`, `--skill <names…>`  | Install these skills. `'*'` installs all.                                       |
 | `-a`, `--agent <agents…>` | Install for these agents, such as `claude-code` or `cursor`. `'*'` targets all. |
-| `-g`, `--global` | Install in your user directory instead of the project. |
-| `-y`, `--yes` | Skip confirmation prompts. |
-| `--copy` | Copy files instead of symlinking them. |
-| `--all` | Same as `--skill '*' --agent '*' -y`. |
+| `-g`, `--global`          | Install in your user directory instead of the project.                          |
+| `-y`, `--yes`             | Skip confirmation prompts.                                                      |
+| `--copy`                  | Copy files instead of symlinking them.                                          |
+| `--all`                   | Same as `--skill '*' --agent '*' -y`.                                           |
 
 Verify the installation with `npx skills list`, or `npx skills list -g` for a global installation. If your agent does not show the new skills, restart its session and open your target project again.
 
@@ -137,6 +137,35 @@ subtask hot
 `subtask` runs subtasks for an agent without any model call: one shell command per item (`--sh "cmd {}"`, or 32 items per process without `{}`), HTTP requests (`--http`), and file reads (`--grep`, `--hash`, `--lines`), or JSONL lines that mix them. Each kind has its own Tokio pool, sized from idle cores, free memory, and the descriptor limit, and split evenly across every `subtask` running at once. The verification worker registers in the same share, so a background verification takes its even share of the cores and leaves the HTTP and file pools to subtasks. Results stream to a JSONL file (`--out`). Stdout prints a one-line summary and the first failures. By default, `subtask` stops at the first failure. `--keep-going` runs every task.
 
 In a sandbox with a read-only temp directory, `subtask` still runs. It runs alone instead of joining the share, and it writes the results file to the working directory. If that directory is also read-only, it prints the JSONL results to stdout above the summary. `worker probe` and `subtask probe` reuse a recent CPU sample, so they return in a few milliseconds.
+
+#### Browser tasks
+
+Browser tasks require `agent-browser` on `PATH` and its browser installed:
+
+```sh
+npm install -g agent-browser
+agent-browser install
+```
+
+Write one task per JSONL line. `session` names the persistent agent-browser session; `commands` is an array of argument arrays, each passed directly to `agent-browser --session <name>` without shell interpolation. For example, with a local server running on port 8000:
+
+```sh
+cat > browser-tasks.jsonl <<'EOF'
+{"browser":{"session":"catalog","commands":[["open","http://localhost:8000/catalog"],["snapshot","-i"]]}}
+{"browser":{"session":"account","commands":[["open","http://localhost:8000/account"],["snapshot","-i"]]}}
+EOF
+subtask --tasks browser-tasks.jsonl --out browser-results.jsonl --keep-going
+```
+
+Commands within a task run in order; the first failure stops that sequence. Different sessions can run concurrently, subject to the shared CPU resource gate and `--cpu` limit. Within one `subtask` run, tasks using the same session do not overlap, but their order across separate tasks is not guaranteed: put dependent actions in one task. A session name must be nonempty and cannot contain path separators. Do not put `--session`, `--cdp`, `--auto-connect`, `--profile`, `--config`, `--provider`, `--session-name`, or `-p` in a command. The runner rejects shared connection settings in agent-browser environment variables and configuration. Before reusing existing sessions, ensure they do not attach to a shared browser; the runner cannot inspect how a previously started daemon was connected. Separate `subtask` processes and external agent-browser commands are not coordinated.
+
+Browser tasks are queued in a private temporary disk spool so a long backlog for one session does not prevent the runner from reading a later independent session. The spool is created with owner-only permissions and immediately unlinked; the operating system removes its contents when the run ends. If the temporary directory is unavailable or the disk fills, the run fails instead of silently dropping tasks. A crash between file creation and unlink can leave an empty owner-only file. Other task types retain their existing bounded queues and read-only temporary-directory behavior.
+
+Results stream to JSONL with action numbers, exit codes, and the CLI's output and errors. The action header does not repeat command arguments, but the CLI output or the input task file may still contain sensitive data. Protect both files. `--timeout-ms` applies to each action, not time spent waiting for a session or CPU slot.
+
+Invalid JSON or UTF-8 is reported without echoing the input. With `--keep-going`, later valid JSONL lines still run. A fatal spool or results-file error stops the run even if standard input remains open.
+
+After a failed browser task, later tasks in the same run cannot reuse its session. A timed-out or interrupted CLI may leave its separate browser daemon executing the action; the runner does not close or kill that daemon. This precaution does not persist across `subtask` runs and does not control other clients. Before reusing the session, confirm that the action has stopped and its side effects are understood. To keep safety tracking bounded, after 1,024 distinct failed sessions the runner rejects further browser tasks in that run. Sessions remain open until explicitly closed, for example with `agent-browser --session catalog close`.
 
 ## Set up your project
 

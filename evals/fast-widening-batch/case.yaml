@@ -13,9 +13,13 @@ execution:
     /xstack:poteto-mode apply_discount in pricing.py returns a total above the original for a negative percent and below zero for a percent over 100. Clamp percent to 0..100. Widening is fine, clean up anything else you find, but keep it fast.
 graders:
   - type: regex
-    name: ticket-clamps-percent
+    name: ticket-clamps-lower-bound
     target: { source: file, path: pricing.py }
-    pattern: 'min\(|max\(|clamp'
+    pattern: 'max\(|clamp'
+  - type: regex
+    name: ticket-clamps-upper-bound
+    target: { source: file, path: pricing.py }
+    pattern: 'min\(|clamp'
   - type: regex
     name: negative-percent-tested
     target: { source: file, path: tests/test_pricing.py }
@@ -39,3 +43,6 @@ graders:
   - type: llm
     name: one-verification-round-for-batch
     criteria: The transcript shows the widening fixes applied together and verified in one round, not a formatter, review, and test cycle repeated after each individual cleanup edit.
+  - type: llm
+    name: preflight-and-baseline-come-first
+    criteria: The transcript shows the preflight (command -v checks) and worker init running before the first Edit or Write to pricing.py, and the pre-existing test_report.py failure noted as a separate blocker before the discount ticket is reported done.

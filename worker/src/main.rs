@@ -6,6 +6,8 @@
 //!               [--timeout-ms N] [--base <ref>]
 //!                                A check containing {shard} runs once per shard.
 //!                                The worker replaces {shard} and {shards} with the shard index and count.
+//!                                It replaces {slot} with a number unique among jobs running at once, across
+//!                                commits, and exports it as XSTACK_WORKER_SLOT, so checks can keep separate state.
 //!                                Without --parallel, the worker adjusts concurrency to available resources.
 //!   worker enqueue [<ref>]       queue a commit, start the worker, and print the unverified commit count
 //!                                The default ref is HEAD.

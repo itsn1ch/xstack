@@ -441,6 +441,40 @@ fn a_shard_check_is_split_across_every_slot() {
 }
 
 #[test]
+fn every_concurrent_job_gets_its_own_slot_without_changing_the_recorded_check() {
+    let dir = make_repo();
+    let log = log_file();
+    let shard = format!(
+        "echo shard {{slot}} $XSTACK_WORKER_SLOT {{shard}} >> {}",
+        log.display()
+    );
+    let plain = format!(
+        "echo plain {{slot}} $XSTACK_WORKER_SLOT >> {}",
+        log.display()
+    );
+    let baseline = init_with(&dir, &[&shard, &plain], |o| o.parallel = Some(2));
+    scheduler::drain(&dir).unwrap();
+    let lines = ran(&log);
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    let mut slots: Vec<&str> = lines
+        .iter()
+        .map(|line| {
+            let words: Vec<&str> = line.split(' ').collect();
+            assert_eq!(words[1], words[2], "placeholder and env agree: {line}");
+            words[1]
+        })
+        .collect();
+    slots.sort();
+    slots.dedup();
+    assert_eq!(slots.len(), 3, "slots are unique: {lines:?}");
+    let checks = entry(&dir, &baseline.sha).checks;
+    assert!(
+        checks.iter().all(|c| c.cmd.contains("{slot}")),
+        "{checks:?}"
+    );
+}
+
+#[test]
 fn the_fast_gate_stops_at_the_first_failure_instead_of_waiting_for_the_slowest() {
     let started = Instant::now();
     let result = run::fast(

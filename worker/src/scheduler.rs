@@ -190,6 +190,7 @@ fn start_commit(
     repo: &Path,
     spool: &Spool,
     claimed: &Claimed,
+    lane: usize,
     worktree: &Path,
     config: &Config,
 ) -> Result<()> {
@@ -202,6 +203,7 @@ fn start_commit(
             cmd: cmds[index].clone(),
             worktree: worktree.to_path_buf(),
             timeout_ms: config.timeout_ms,
+            slot: lane * cmds.len() + index + 1,
             preexisting: claimed.red_at_baseline.contains(&cmds[index]),
             result: None,
         };
@@ -274,21 +276,27 @@ fn run_job(job: &Job, slots: &Slots, cancel: &AtomicBool) -> CheckResult {
         slots: Some(slots),
         nice: true,
         cancel: Some(cancel),
+        slot: Some(job.slot),
         ..RunOptions::new(job.timeout_ms)
     };
-    let spec = Spec::Shell(job.cmd.clone());
+    let spec = Spec::Shell(job.cmd.replace("{slot}", &job.slot.to_string()));
+    // Results keep the configured command, so a lane's slot never splits one check's history or baseline.
+    let run = |spec: &Spec| CheckResult {
+        cmd: job.cmd.clone(),
+        ..run_command(&job.worktree, spec, &options)
+    };
     let stopped = |result: CheckResult| CheckResult {
         cancelled: true,
         ..result
     };
-    let first = run_command(&job.worktree, &spec, &options);
+    let first = run(&spec);
     if first.exit != 0 && cancel.load(SeqCst) {
         return stopped(first);
     }
     if first.exit == 0 || first.timed_out {
         return first;
     }
-    let second = run_command(&job.worktree, &spec, &options);
+    let second = run(&spec);
     if second.exit == 0 {
         CheckResult {
             flaky: true,
@@ -338,6 +346,7 @@ pub fn drain(repo: &Path) -> Result<()> {
                     repo,
                     &spool,
                     &claimed,
+                    k,
                     &worktrees.join(k.to_string()),
                     &config,
                 ) {

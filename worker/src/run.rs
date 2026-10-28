@@ -49,6 +49,8 @@ pub struct RunOptions<'a> {
     pub inherit: bool,
     pub cancel: Option<&'a AtomicBool>,
     pub pgid: Option<&'a AtomicI32>,
+    /// Exported as `XSTACK_WORKER_SLOT` so concurrent checks can keep separate state.
+    pub slot: Option<usize>,
 }
 
 impl RunOptions<'_> {
@@ -60,6 +62,7 @@ impl RunOptions<'_> {
             inherit: false,
             cancel: None,
             pgid: None,
+            slot: None,
         }
     }
 }
@@ -159,6 +162,9 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
         .current_dir(cwd)
         .env("XSTACK_WORKER", "1")
         .process_group(0);
+    if let Some(slot) = options.slot {
+        command.env("XSTACK_WORKER_SLOT", slot.to_string());
+    }
     if options.nice {
         // SAFETY: setpriority is async-signal-safe and only lowers this child's own priority.
         unsafe {

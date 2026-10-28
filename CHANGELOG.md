@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `worker split` kini membagi pekerjaan dalam batch maksimal 32 item. Thread yang kehabisan antrean mengambil separuh item yang belum dimulai dari thread lain, tanpa mengulang proses yang sedang berjalan. Batas concurrency, timeout per perintah, fail-fast, dan `--keep-going` tetap berlaku.
 - Migrasikan seluruh tool `poteto-mode/scripts` ke Rust: `orch`, `watch-pr`, `check-plan`, dan `worktree-audit`. Pertahankan format store dan keluaran JSON, pindahkan tes perilaku ke Cargo, perbarui perintah instalasi dan playbook, serta hapus runtime dan konfigurasi Bun/Node.js.
 - swarm step 4 kini hanya memakai hardware cap dan test slot untuk swarm verifikasi; tier dan budget cap hanya untuk slice penulisan kode poteto-mode, sesuai Subagents di poteto-mode. diving mengikuti aturan yang sama.
 - diving wajib menuntaskan root cause: UNKNOWN hanya status kerja, setiap fakta yang hilang dikejar lewat loop resolusi dan eskalasi delapan langkah (kedalaman investigasi, bukan hardware); diagnosis selesai hanya dengan enam syarat; verdict REPRODUCED dan NOT REPRODUCED diganti BLOCKED untuk blocker objektif yang dibuktikan. Bug fix step 2 tidak lagi menyuruh membuat hipotesis.

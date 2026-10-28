@@ -111,6 +111,20 @@ Run the tools' tests with:
 cargo test --locked --manifest-path skills/poteto-mode/scripts/Cargo.toml
 ```
 
+### Install the verification worker
+
+```sh
+cargo install --locked --path worker
+worker probe
+```
+
+`worker split` distributes input items across worker queues. Each command receives at most 32 items. When a worker finishes its queue, it takes half another worker's remaining items. Running commands keep their arguments and do not restart. `-j N` limits concurrent commands, not the total number of batches.
+
+Use `--each` when each input item needs its own test command. Use `--keep-going` to finish pending batches after a failure. The default stops pending work and cancels running siblings on the first failure. Timeouts apply to each command.
+
+The background scheduler shares queued checks and native test shards. It cannot divide a test process that has already started. Use the test runner's shard support for background checks instead of nesting `worker split` inside an outer worker check.
+
+
 ## Set up your project
 
 Open the project you want to work on, not the Xstack installation directory. Run:

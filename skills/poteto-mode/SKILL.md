@@ -128,14 +128,15 @@ These rules apply directly. They do not require a separate leaf skill, subagent,
    The tier and budget caps bound only these code-writing slices. Panels (to-tickets, arena, interrogate) and verification swarms keep the size their skill or role line sets.
 4. **Engineer wait budget.** The tier measures agent time. The engineer's experience is the time they wait, so every plan also meets these targets (guesses from common practice, not measured here):
 
-   | Wait | Target | Ceiling |
-   | --- | --- | --- |
-   | Foreground gate before a commit | under 30 s | 1 min |
-   | First reviewable result (a commit, a ticket, a finding) | 15 to 30 min | 45 min |
-   | Progress line during a longer task | every ~10 min | 15 min |
-   | Diff per reviewable result | under ~400 lines | split above that (`worker diff-budget --base <base>`) |
+   | Wait                                                    | Target           | Ceiling                                               |
+   | ------------------------------------------------------- | ---------------- | ----------------------------------------------------- |
+   | Foreground gate before a commit                         | under 30 s       | 1 min                                                 |
+   | First reviewable result (a commit, a ticket, a finding) | 15 to 30 min     | 45 min                                                |
+   | Progress line during a longer task                      | every ~10 min    | 15 min                                                |
+   | Diff per reviewable result                              | under ~400 lines | split above that (`worker diff-budget --base <base>`) |
 
    A task whose first reviewable result would land after 30 minutes is split into smaller results, each committed and reported as it lands. A gate that runs past its ceiling moves its heavy part to **Background verification** or splits it across cores.
+
 5. **Estimate message.** One short message: the tier, the solo estimate, the slices, the agent count with the cap that bound it, the hardware read (cores, available GB), when the engineer gets the first reviewable result, and the wall-clock estimate (the longest slice per wave, plus about 10 minutes for the contract and about 10 for merge and verification). Label every number a guess. In the final reply, report the actual wall-clock time next to the estimate.
 
 **Scale the ceremony to the tier.** Design and review gates cost wall-clock time, so each one runs at the size the work earns. Correctness gates never shrink: reproduction, the TDD red step, verification on the real surface, formatting, unslop, and the tests stay at full strength in every tier.
@@ -179,7 +180,7 @@ Speed comes from removing waiting, repetition, and wasted work. It never comes f
 9. **Scope follows the request.** Two modes, picked from the user's words and named in the first todo.
    - **Incremental** is the default for a specific feature, fix, or ticket. Ground, design, test, and verify only the changed scope and what depends on it: affected tests, gates over the changed files, passed gates reused on an unchanged SHA. The full suite runs on every commit in the background, per **Background verification**.
    - **Full** runs when the user asks to verify everything ("verify all", "check everything", "full verification", "verifikasi semua", "semuanya"), or before a release. Every gate runs fresh over the whole branch: full suite, heavy suites, formatter check on every changed file, `interrogate`, and verification on the real surface. No passed gate is reused. The reply waits for `worker gate <base> --each`.
-   Correctness gates never shrink in either mode. Incremental only narrows what they run over.
+     Correctness gates never shrink in either mode. Incremental only narrows what they run over.
 
 ## Harness
 
@@ -253,6 +254,7 @@ Tests and verification are where wall-clock time goes, and they are bound by the
 2. **Reach for it by default.** Any step that runs the same kind of mechanical work over many items goes through one `subtask` call, not a loop of tool calls or a shell loop:
    - Shell commands per item: `subtask --sh "<cmd>" < items`. Without `{}`, each process receives 32 items, which runs 10 to 26 times faster than one process per item for commands under a few milliseconds (measured: 20,000 `wc -c` calls took 14.8 s in a shell loop and 0.57 s batched). Use `{}` only when the command takes exactly one item.
    - HTTP: `subtask --http < urls`, or JSONL `{"http": {"url": .., "method": .., "headers": {..}, "body": ..}}` for anything beyond a GET. Requests share connections, wait on `--per-host` (128 by default), and retry 429 and 5xx.
+   - Browser: batch independent `agent-browser` journeys as `{"browser":{"session":"unique-name","commands":[["open","<url>"],["snapshot","-i"]]}}` JSONL tasks. Commands in one task run in order; separate sessions run concurrently under the CPU share. Same-session tasks serialize only within one run and have no guaranteed order: combine dependent commands into one task and do not share a session across concurrent runs. Close owned sessions explicitly. See the repository README's Browser tasks section for installation, results, and timeouts.
    - File reads: `--grep <regex>`, `--hash`, `--lines`, about 100,000 files a second. For one search over a tree, the project's search tool (`rg`) is already one fast call; use `subtask --grep` when the file list comes from an earlier step.
    - A mix: one JSONL task per line, `{"sh": ..}`, `{"argv": [..]}`, `{"http": {..}}`, `{"grep": {"path": .., "pattern": ..}}`, `{"hash": ..}`, `{"lines": ..}`.
 3. **Keep the context small.** Stdout is one summary line plus the first failures. Read the JSONL results file only for what the summary does not answer, and filter it (`rg '"ok":false'`) rather than reading it whole. The default stops at the first failure; pass `--keep-going` when every result matters, such as a sweep or an audit.

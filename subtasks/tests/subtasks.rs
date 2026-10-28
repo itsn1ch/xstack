@@ -1,7 +1,9 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -18,6 +20,20 @@ fn temp_dir(tag: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn assert_no_temporary_files(dir: &Path) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        assert!(
+            !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".xstack-subtasks-"),
+            "task spool remains: {:?}",
+            entry.path()
+        );
+    }
 }
 
 fn options(dir: &Path) -> SubOptions {
@@ -146,6 +162,7 @@ fn jsonl_lines_parse_into_every_task_kind() {
     let lines = [
         r#"{"sh": "echo hi"}"#,
         r#"{"argv": ["echo", "a"]}"#,
+        r#"{"browser": {"session": "research", "commands": [["open", "https://example.com"], ["snapshot", "-i"]]}}"#,
         r#"{"http": {"url": "http://127.0.0.1:9/"}}"#,
         r#"{"grep": {"path": "f", "pattern": "x"}}"#,
         r#"{"hash": "f"}"#,
@@ -154,6 +171,585 @@ fn jsonl_lines_parse_into_every_task_kind() {
     for line in lines {
         serde_json::from_str::<Task>(line).unwrap_or_else(|e| panic!("{line}: {e}"));
     }
+}
+
+// Exercise the public JSONL/CLI interface with a deterministic agent-browser executable.
+fn browser_cli(dir: &Path, tasks: &[serde_json::Value], extra: &[&str]) -> std::process::Output {
+    let tmp = dir.join("tmp");
+    fs::create_dir_all(&tmp).unwrap();
+    browser_cli_in_tmp(dir, tasks, extra, &tmp)
+}
+
+fn browser_cli_in_tmp(
+    dir: &Path,
+    tasks: &[serde_json::Value],
+    extra: &[&str],
+    tmp: &Path,
+) -> std::process::Output {
+    let script = dir.join("agent-browser");
+    fs::write(
+        &script,
+        r#"#!/bin/sh
+if [ "$1" != "--session" ]; then exit 70; fi
+session=$2
+shift 2
+action=$1
+shift
+case "$action" in
+  echo) printf 'arg:%s\n' "$@" ;;
+  fail) echo 'browser error' >&2; exit 9 ;;
+  after) touch after ;;
+  hold)
+    if ! mkdir "$session.lock" 2>/dev/null; then echo overlap >&2; exit 31; fi
+    sleep 0.3
+    rmdir "$session.lock"
+    echo held
+    ;;
+  meet)
+    touch "$session.started"
+    n=0
+    while [ ! -e "$1.started" ] && [ "$n" -lt 40 ]; do
+      sleep 0.05
+      n=$((n + 1))
+    done
+    if [ ! -e "$1.started" ]; then echo 'peer not observed' >&2; exit 32; fi
+    echo met
+    ;;
+  hang) echo started; sleep 30 ;;
+  *) exit 71 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let input = tasks
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(dir.join("tasks.jsonl"), input).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(dir)
+        .env("PATH", path)
+        .env("TMPDIR", tmp)
+        .args([
+            "--tasks",
+            "tasks.jsonl",
+            "--out",
+            "results.jsonl",
+            "--cpu",
+            "4",
+        ])
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn browser_commands_preserve_order_arguments_and_failure_output() {
+    let dir = temp_dir("browser-actions");
+    let tasks = vec![
+        serde_json::json!({"browser": {"session": "ordered", "commands": [
+            ["echo", "hello world", "; touch injected"], ["echo", "second"], ["fail"], ["after"]
+        ]}}),
+    ];
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows[0]["kind"], "browser");
+    assert_eq!(rows[0]["code"], 9);
+    let text = rows[0]["output"].as_str().unwrap();
+    assert!(text.find("arg:hello world").unwrap() < text.find("arg:second").unwrap());
+    assert!(text.find("arg:second").unwrap() < text.find("browser error").unwrap());
+    assert!(text.contains("arg:; touch injected"));
+    assert!(!dir.join("injected").exists());
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_rejects_session_overrides_and_does_not_repeat_action_arguments() {
+    let dir = temp_dir("browser-arguments");
+    let tasks = vec![
+        serde_json::json!({"browser": {"session": "a", "commands": [["--session", "other", "after"]]}}),
+        serde_json::json!({"browser": {"session": "b", "commands": [["--session=other", "after"]]}}),
+        serde_json::json!({"browser": {"session": "c", "commands": [["hold", "private-value"]]}}),
+    ];
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows[0]["code"], -1);
+    assert_eq!(rows[1]["code"], -1);
+    assert_eq!(rows[2]["code"], 0);
+    assert!(!rows[2]["output"]
+        .as_str()
+        .unwrap()
+        .contains("private-value"));
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn invalid_browser_input_does_not_disclose_command_arguments() {
+    let dir = temp_dir("browser-invalid-secret");
+    let secret = "private-browser-token-7092";
+    fs::write(
+        dir.join("tasks.jsonl"),
+        format!(
+            "{{\"browser\":{{\"session\":\"one\",\"commands\":[[\"fill\",\"{secret}\"]]}}\n\
+             {{\"browser\":{{\"session\":\"two\",\"commands\":\"{secret}\"}}}}\n"
+        ),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .args([
+            "--tasks",
+            "tasks.jsonl",
+            "--out",
+            "results.jsonl",
+            "--keep-going",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+    assert!(!fs::read_to_string(dir.join("results.jsonl"))
+        .unwrap()
+        .contains(secret));
+    assert_eq!(results(&dir).len(), 2);
+}
+
+#[test]
+fn invalid_utf8_input_fails_without_losing_later_tasks() {
+    let dir = temp_dir("invalid-input-bytes");
+    let mut input = fs::File::create(dir.join("tasks.jsonl")).unwrap();
+    input
+        .write_all(b"{\"sh\":\"printf first\"}\n\xff\n{\"sh\":\"printf second\"}\n")
+        .unwrap();
+    drop(input);
+    let output = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .args([
+            "--tasks",
+            "tasks.jsonl",
+            "--out",
+            "results.jsonl",
+            "--keep-going",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["output"], "first");
+    assert_eq!(rows[1]["ok"], false);
+    assert_eq!(rows[2]["output"], "second");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn output_failure_does_not_wait_for_open_input() {
+    let dir = temp_dir("full-output-open-input");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .args(["--out", "/dev/full", "--keep-going", "--cpu", "1"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    writeln!(input, r#"{{"sh":"printf ok"}}"#).unwrap();
+    input.flush().unwrap();
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    drop(input);
+    if status.is_none() {
+        child.kill().unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(status.is_some(), "output error waited for input EOF");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("space"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn output_failure_interrupts_a_dispatcher_waiting_for_a_file_slot() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = temp_dir("full-output-blocked-file");
+    let fifo = dir.join("blocked");
+    let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .args([
+            "--out",
+            "/dev/full",
+            "--keep-going",
+            "--cpu",
+            "1",
+            "--file",
+            "1",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    writeln!(input, "{}", serde_json::json!({"lines": fifo})).unwrap();
+    writeln!(input, r#"{{"lines":"/dev/null"}}"#).unwrap();
+    for _ in 0..3 {
+        writeln!(input, r#"{{"sh":"printf '%04000d' 1"}}"#).unwrap();
+    }
+    drop(input);
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    if status.is_none() {
+        child.kill().unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        status.is_some(),
+        "output error waited for a blocked file task"
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("space"));
+}
+
+#[test]
+fn browser_rejects_path_aliases_for_session_names() {
+    let dir = temp_dir("browser-session-alias");
+    let tasks = vec![
+        serde_json::json!({"browser": {"session": "./same", "commands": [["after"]]}}),
+        serde_json::json!({"browser": {"session": "../same", "commands": [["after"]]}}),
+        serde_json::json!({"browser": {"session": "same\\other", "commands": [["after"]]}}),
+    ];
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert!(rows.iter().all(|row| row["code"] == -1));
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_rejects_shared_browser_connection_options() {
+    let dir = temp_dir("browser-shared-connection");
+    let tasks = vec![
+        serde_json::json!({"browser": {"session": "one", "commands": [["--cdp", "9222", "after"]]}}),
+        serde_json::json!({"browser": {"session": "two", "commands": [["--auto-connect", "after"]]}}),
+        serde_json::json!({"browser": {"session": "three", "commands": [["--profile", "shared", "after"]]}}),
+    ];
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert!(rows.iter().all(|row| row["code"] == -1));
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_rejects_shared_project_connection_configuration() {
+    let dir = temp_dir("browser-config-connection");
+    fs::write(dir.join("agent-browser.json"), r#"{"cdp":"9222"}"#).unwrap();
+    let tasks = vec![serde_json::json!({"browser": {"session": "one", "commands": [["after"]]}})];
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows[0]["code"], -1);
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_rejects_shared_connection_environment() {
+    let dir = temp_dir("browser-env-connection");
+    let tasks =
+        vec![serde_json::json!({"browser": {"session": "one", "commands": [["echo", "safe"]]}})];
+    let setup = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(setup.status.success());
+    let path = format!(
+        "{}:{}",
+        dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .env("PATH", path)
+        .env("AGENT_BROWSER_CDP", "9222")
+        .args([
+            "--tasks",
+            "tasks.jsonl",
+            "--out",
+            "results.jsonl",
+            "--keep-going",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows[0]["code"], -1);
+    assert!(!rows[0]["output"].as_str().unwrap().contains("arg:safe"));
+}
+
+#[test]
+fn browser_tasks_in_the_same_session_do_not_overlap() {
+    let dir = temp_dir("browser-lock");
+    let tasks: Vec<_> = (0..8)
+        .map(|_| serde_json::json!({"browser": {"session": "same", "commands": [["hold"]]}}))
+        .collect();
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let rows = results(&dir);
+    assert_eq!(rows.len(), 8);
+    assert!(rows.iter().all(|row| row["ok"] == true));
+}
+
+#[test]
+fn browser_independent_sessions_can_run_concurrently() {
+    let dir = temp_dir("browser-concurrent");
+    let tasks = vec![
+        serde_json::json!({"browser": {"session": "left", "commands": [["meet", "right"]]}}),
+        serde_json::json!({"browser": {"session": "left", "commands": [["hold"]]}}),
+        serde_json::json!({"browser": {"session": "right", "commands": [["meet", "left"]]}}),
+    ];
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let rows = results(&dir);
+    // A machine whose shared CPU allocation is one cannot run either task concurrently.
+    if stdout.contains("peak cpu 1,") {
+        assert!(rows.iter().any(|row| row["output"]
+            .as_str()
+            .unwrap_or("")
+            .contains("peer not observed")));
+    } else {
+        assert!(output.status.success(), "{stdout}");
+        assert!(rows[0]["output"].as_str().unwrap().contains("met"));
+        assert!(rows[2]["output"].as_str().unwrap().contains("met"));
+    }
+}
+
+#[test]
+fn browser_backlog_does_not_block_an_independent_session() {
+    let dir = temp_dir("browser-spooled-backlog");
+    let mut tasks =
+        vec![serde_json::json!({"browser": {"session": "left", "commands": [["meet", "right"]]}})];
+    tasks.extend((0..1030).map(
+        |_| serde_json::json!({"browser": {"session": "left", "commands": [["echo", "queued"]]}}),
+    ));
+    tasks
+        .push(serde_json::json!({"browser": {"session": "right", "commands": [["meet", "left"]]}}));
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.contains("peak cpu 1,") {
+        return;
+    }
+    assert!(output.status.success(), "{stdout}");
+    let rows = results(&dir);
+    assert_eq!(rows.len(), tasks.len());
+    assert!(rows.iter().all(|row| row["ok"] == true));
+}
+
+#[test]
+fn browser_backlog_keeps_arguments_out_of_stdout_and_cleans_temporary_files() {
+    let dir = temp_dir("browser-spool-private");
+    let secret = "private-browser-argument-not-for-stdout";
+    let mut tasks =
+        vec![serde_json::json!({"browser": {"session": "same", "commands": [["hold"]]}})];
+    tasks.extend((0..64).map(
+        |_| serde_json::json!({"browser": {"session": "same", "commands": [["echo", secret]]}}),
+    ));
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    assert!(!stdout.contains(secret));
+    let rows = results(&dir);
+    assert_eq!(rows.len(), tasks.len());
+    assert!(rows.iter().all(|row| row["ok"] == true));
+    assert_no_temporary_files(&dir.join("tmp"));
+}
+
+#[test]
+fn browser_input_error_does_not_lose_other_queued_tasks() {
+    let dir = temp_dir("browser-spool-input-error");
+    let mut tasks =
+        vec![serde_json::json!({"browser": {"session": "same", "commands": [["hold"]]}})];
+    tasks.extend((0..64).map(|i| {
+        serde_json::json!({"browser": {"session": "same", "commands": [["echo", i.to_string()]]}})
+    }));
+    tasks.insert(32, serde_json::json!({"not-a-task": true}));
+    let output = browser_cli(&dir, &tasks, &["--keep-going"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows.len(), tasks.len());
+    for (i, row) in rows.iter().enumerate() {
+        assert_eq!(row["i"], i);
+        assert_eq!(row["ok"], i != 32);
+    }
+    assert_no_temporary_files(&dir.join("tmp"));
+}
+
+#[test]
+fn browser_spool_creation_failure_is_not_reported_as_success() {
+    let dir = temp_dir("browser-spool-unavailable");
+    let tmp = dir.join("not-a-directory");
+    fs::write(&tmp, "untouched").unwrap();
+    let tasks = vec![serde_json::json!({"browser": {"session": "same", "commands": [["after"]]}})];
+    let output = browser_cli_in_tmp(&dir, &tasks, &["--keep-going"], &tmp);
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("SUBTASK OK"));
+    assert!(!dir.join("after").exists());
+    assert_eq!(fs::read_to_string(tmp).unwrap(), "untouched");
+    if dir.join("results.jsonl").exists() {
+        assert!(results(&dir).iter().all(|row| row["ok"] != true));
+    }
+}
+
+#[test]
+fn browser_rejects_empty_tasks_and_reports_timeouts() {
+    let dir = temp_dir("browser-invalid");
+    let tasks = vec![
+        serde_json::json!({"browser": {"session": "", "commands": [["echo"]]}}),
+        serde_json::json!({"browser": {"session": "a", "commands": []}}),
+        serde_json::json!({"browser": {"session": "b", "commands": [[]]}}),
+        serde_json::json!({"browser": {"session": "c", "commands": [["hang"], ["after"]]}}),
+    ];
+    let output = browser_cli(&dir, &tasks, &["--keep-going", "--timeout-ms", "200"]);
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert!(rows[..3].iter().all(|row| row["code"] == -1));
+    assert_eq!(rows[3]["code"], 124);
+    assert!(rows[3]["output"].as_str().unwrap().contains("timed out"));
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_timeout_blocks_later_tasks_in_the_same_session() {
+    let dir = temp_dir("browser-timeout-session");
+    let script = dir.join("agent-browser");
+    fs::write(
+        &script,
+        "#!/bin/sh\nshift 2\ncase \"$1\" in hang) touch started; sleep 30;; after) touch after;; esac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .env("PATH", path)
+        .args([
+            "--out",
+            "results.jsonl",
+            "--keep-going",
+            "--timeout-ms",
+            "1000",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({"browser": {"session": "same", "commands": [["hang"]]}})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    while !dir.join("started").exists() && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        dir.join("started").exists(),
+        "first browser action did not start"
+    );
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({"browser": {"session": "same", "commands": [["after"]]}})
+    )
+    .unwrap();
+    drop(input);
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows[0]["code"], 124);
+    assert!(!rows[1]["ok"].as_bool().unwrap());
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_reports_a_missing_executable() {
+    let dir = temp_dir("browser-missing");
+    fs::write(
+        dir.join("tasks.jsonl"),
+        r#"{"browser":{"session":"s","commands":[["open","https://example.com"],["after"]]}}"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .current_dir(&dir)
+        .env("PATH", &dir)
+        .args([
+            "--tasks",
+            "tasks.jsonl",
+            "--out",
+            "results.jsonl",
+            "--keep-going",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let rows = results(&dir);
+    assert_eq!(rows[0]["code"], 127);
+    assert!(rows[0]["output"].as_str().unwrap().contains("cannot start"));
+    assert!(!dir.join("after").exists());
+}
+
+#[test]
+fn browser_waiters_and_running_actions_obey_fail_fast() {
+    let dir = temp_dir("browser-cancel");
+    let mut tasks = vec![serde_json::json!({"sh": "sleep 0.2; exit 8"})];
+    tasks.extend((0..12).map(
+        |_| serde_json::json!({"browser": {"session": "same", "commands": [["hang"], ["after"]]}}),
+    ));
+    let started = Instant::now();
+    let output = browser_cli(&dir, &tasks, &[]);
+    assert!(!output.status.success());
+    assert!(started.elapsed().as_secs() < 10);
+    let rows = results(&dir);
+    assert_eq!(rows[0]["code"], 8);
+    assert!(rows.iter().skip(1).all(|row| row["cancelled"] == true));
+    assert!(!dir.join("after").exists());
+    assert_no_temporary_files(&dir.join("tmp"));
 }
 
 /// Serves `/flaky` as 503 twice then 200, `/missing` as 404, and anything else as 200 with the path as body.

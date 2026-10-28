@@ -1,18 +1,21 @@
-//! Runs many small subtasks for one agent without any model call: shell commands, HTTP requests, and file reads.
-//! Each kind has its own pool, so slow requests never hold back commands. A pool's width comes from the machine,
+//! Runs many small subtasks for one agent without any model call: commands, browser actions, HTTP requests, and file reads.
+//! Each kind has its own pool, with browser actions sharing the CPU pool. A pool's width comes from the machine,
 //! is split evenly across every `worker sub` running at once, and is read again every `RETUNE`.
-//! Tasks stream in through bounded queues and results stream out to a JSONL file, so memory stays flat
-//! however many tasks a run reads.
+//! Tasks stream through bounded queues; browser tasks use a private disk spool.
+//! Results stream to a JSONL file, so memory stays flat as task count grows.
+#[path = "spool.rs"]
+mod spool;
+
 use crate::Result;
 use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch, Notify, Semaphore};
@@ -36,25 +39,33 @@ const FD_HEADROOM: u64 = 256;
 const FILE_PER_CORE: usize = 16;
 const FILE_MAX: usize = 512;
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
-/// Tasks read ahead of each pool. The reader waits when a pool's queue is full.
+/// Bounded read-ahead for network and file tasks, and CPU completion notifications.
 const QUEUE_DEPTH: usize = 1024;
 
 /// One input line: a task, or why the line is not one.
 pub type Input = std::result::Result<Task, String>;
 
 /// One subtask. In JSONL each line is an object with one key, such as `{"sh": "cmd"}` or `{"hash": "path"}`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Task {
     Sh(String),
     Argv(Vec<String>),
+    Browser(Browser),
     Http(Http),
     Grep { path: String, pattern: String },
     Hash(String),
     Lines(String),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// Commands are argument arrays passed directly to agent-browser, without a shell.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Browser {
+    pub session: String,
+    pub commands: Vec<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Http {
     pub url: String,
     #[serde(default = "get")]
@@ -82,7 +93,7 @@ enum Pool {
 impl Task {
     fn pool(&self) -> Pool {
         match self {
-            Task::Sh(_) | Task::Argv(_) => Pool::Cpu,
+            Task::Sh(_) | Task::Argv(_) | Task::Browser(_) => Pool::Cpu,
             Task::Http(_) => Pool::Net,
             Task::Grep { .. } | Task::Hash(_) | Task::Lines(_) => Pool::File,
         }
@@ -92,6 +103,7 @@ impl Task {
         match self {
             Task::Sh(_) => "sh",
             Task::Argv(_) => "argv",
+            Task::Browser(_) => "browser",
             Task::Http(_) => "http",
             Task::Grep { .. } => "grep",
             Task::Hash(_) => "hash",
@@ -103,6 +115,7 @@ impl Task {
         match self {
             Task::Sh(cmd) => cmd.clone(),
             Task::Argv(argv) => argv.join(" "),
+            Task::Browser(browser) => browser.session.clone(),
             Task::Http(h) => format!("{} {}", h.method, h.url),
             Task::Grep { path, pattern } => format!("{pattern} {path}"),
             Task::Hash(path) | Task::Lines(path) => path.clone(),
@@ -221,38 +234,67 @@ pub struct Summary {
 
 /// Lets one dispatcher start a task only while fewer than `width` of its pool are running.
 struct Gate {
-    running: AtomicUsize,
-    width: AtomicUsize,
-    peak: AtomicUsize,
+    state: Mutex<GateState>,
     freed: Notify,
+}
+
+struct GateState {
+    running: usize,
+    width: usize,
+    peak: usize,
 }
 
 impl Gate {
     fn new(width: usize) -> Gate {
         Gate {
-            running: AtomicUsize::new(0),
-            width: AtomicUsize::new(width),
-            peak: AtomicUsize::new(0),
+            state: Mutex::new(GateState {
+                running: 0,
+                width,
+                peak: 0,
+            }),
             freed: Notify::new(),
         }
     }
 
-    async fn enter(&self) {
-        while self.running.load(SeqCst) >= self.width.load(SeqCst) {
-            self.freed.notified().await;
+    fn try_enter(&self) -> bool {
+        let mut state = self.state.lock().expect("gate state");
+        if state.running >= state.width {
+            return false;
         }
-        let now = self.running.fetch_add(1, SeqCst) + 1;
-        self.peak.fetch_max(now, SeqCst);
+        state.running += 1;
+        state.peak = state.peak.max(state.running);
+        true
+    }
+
+    async fn enter(&self) {
+        loop {
+            let notified = self.freed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            {
+                let mut state = self.state.lock().expect("gate state");
+                if state.running < state.width {
+                    state.running += 1;
+                    state.peak = state.peak.max(state.running);
+                    return;
+                }
+            }
+            notified.await;
+        }
     }
 
     fn leave(&self) {
-        self.running.fetch_sub(1, SeqCst);
-        self.freed.notify_one();
+        self.state.lock().expect("gate state").running -= 1;
+        self.freed.notify_waiters();
     }
 
     fn resize(&self, width: usize) {
-        if self.width.swap(width, SeqCst) != width {
-            self.freed.notify_one();
+        let mut state = self.state.lock().expect("gate state");
+        let increased = width > state.width;
+        state.width = width;
+        drop(state);
+        if increased {
+            self.freed.notify_waiters();
         }
     }
 }
@@ -265,10 +307,48 @@ struct Ctx {
     client: reqwest::Client,
     hosts: Mutex<HashMap<String, Arc<Semaphore>>>,
     patterns: Mutex<HashMap<String, Arc<std::result::Result<Regex, String>>>>,
+    sessions: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
+    uncertain_sessions: Mutex<UncertainSessions>,
     cancel: watch::Receiver<bool>,
 }
 
+#[derive(Default)]
+struct UncertainSessions {
+    names: HashSet<String>,
+    overflowed: bool,
+}
+
+impl UncertainSessions {
+    fn contains(&self, name: &str) -> bool {
+        self.overflowed || self.names.contains(name)
+    }
+
+    fn insert(&mut self, name: String) {
+        if !self.overflowed {
+            self.names.insert(name);
+            self.overflowed = self.names.len() >= QUEUE_DEPTH;
+        }
+    }
+}
+
 impl Ctx {
+    fn session(&self, name: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut sessions = self.sessions.lock().expect("browser sessions");
+        if let Some(session) = sessions.get(name).and_then(Weak::upgrade) {
+            return session;
+        }
+        let session = Arc::new(tokio::sync::Mutex::new(()));
+        sessions.insert(name.to_string(), Arc::downgrade(&session));
+        session
+    }
+
+    fn forget_session(&self, name: &str, session: &Arc<tokio::sync::Mutex<()>>) {
+        let mut sessions = self.sessions.lock().expect("browser sessions");
+        if Arc::strong_count(session) == 1 {
+            sessions.remove(name);
+        }
+    }
+
     fn host(&self, url: &str) -> Arc<Semaphore> {
         let host = reqwest::Url::parse(url)
             .ok()
@@ -340,7 +420,11 @@ where
         .build()
         .map_err(|e| format!("cannot start runtime: {e}"))?;
     let tasks = tasks.into_iter();
-    let mut summary = runtime.block_on(drive(tasks, options, share, meter, nofile, first))?;
+    let result = runtime.block_on(drive(tasks, options, share, meter, nofile, first));
+    if result.is_err() {
+        runtime.shutdown_timeout(Duration::from_millis(10));
+    }
+    let mut summary = result?;
     summary.ms = started.elapsed().as_millis() as u64;
     Ok(summary)
 }
@@ -359,6 +443,7 @@ async fn drive(
         .user_agent("xstack-worker")
         .build()
         .map_err(|e| format!("cannot build HTTP client: {e}"))?;
+    let spool = spool::Spool::new();
     let (cancel_tx, cancel) = watch::channel(false);
     let ctx = Arc::new(Ctx {
         cwd: options.cwd.clone(),
@@ -368,6 +453,8 @@ async fn drive(
         client,
         hosts: Mutex::new(HashMap::new()),
         patterns: Mutex::new(HashMap::new()),
+        sessions: Mutex::new(HashMap::new()),
+        uncertain_sessions: Mutex::new(UncertainSessions::default()),
         cancel,
     });
     let gates = [
@@ -385,7 +472,7 @@ async fn drive(
                 tokio::time::sleep(RETUNE).await;
                 let runs = share.runs();
                 runs_seen.fetch_max(runs.all, SeqCst);
-                let ours = gates[0].running.load(SeqCst);
+                let ours = gates[0].state.lock().expect("gate state").running;
                 let w = widths(&meter.read(), runs, ours, sh_mem_mb, nofile).min(cap);
                 gates[0].resize(w.cpu);
                 gates[1].resize(w.net);
@@ -398,27 +485,41 @@ async fn drive(
     let file = File::create(&options.out)
         .map_err(|e| format!("cannot create {}: {e}", options.out.display()))?;
     let (fail_fast, show) = (options.fail_fast, options.show);
+    let fatal = Arc::new(AtomicBool::new(false));
+    let (fatal_tx, mut fatal_rx) = watch::channel::<Option<String>>(None);
+    let writer_fatal = Arc::clone(&fatal);
+    let writer_cancel = cancel_tx.clone();
+    let writer_error = fatal_tx.clone();
     let writer = tokio::task::spawn_blocking(move || -> Result<Tally> {
-        let mut out = BufWriter::new(file);
-        let mut tally = Tally::default();
-        while let Some(outcome) = results.blocking_recv() {
-            tally.done += 1;
-            serde_json::to_writer(&mut out, &outcome).map_err(|e| e.to_string())?;
-            out.write_all(b"\n").map_err(|e| e.to_string())?;
-            if outcome.cancelled {
-                tally.cancelled += 1;
-            } else if !outcome.ok {
-                tally.failed += 1;
-                if fail_fast {
-                    let _ = cancel_tx.send(true);
-                }
-                if tally.failures.len() < show {
-                    tally.failures.push(outcome);
+        let result: Result<Tally> = (|| {
+            let mut out = BufWriter::new(file);
+            let mut tally = Tally::default();
+            while let Some(outcome) = results.blocking_recv() {
+                tally.done += 1;
+                serde_json::to_writer(&mut out, &outcome).map_err(|e| e.to_string())?;
+                out.write_all(b"\n").map_err(|e| e.to_string())?;
+                out.flush().map_err(|e| e.to_string())?;
+                if outcome.cancelled {
+                    tally.cancelled += 1;
+                } else if !outcome.ok {
+                    tally.failed += 1;
+                    if fail_fast {
+                        let _ = writer_cancel.send(true);
+                    }
+                    if tally.failures.len() < show {
+                        tally.failures.push(outcome);
+                    }
                 }
             }
+            out.flush().map_err(|e| e.to_string())?;
+            Ok(tally)
+        })();
+        if let Err(error) = &result {
+            writer_fatal.store(true, SeqCst);
+            let _ = writer_error.send(Some(error.clone()));
+            let _ = writer_cancel.send(true);
         }
-        out.flush().map_err(|e| e.to_string())?;
-        Ok(tally)
+        result
     });
 
     let mut queues = Vec::new();
@@ -435,27 +536,63 @@ async fn drive(
             ))
         })
         .collect();
+    let cpu_dispatcher = {
+        let (spool, gate, ctx, results, cancel) = (
+            Arc::clone(&spool),
+            Arc::clone(&gates[0]),
+            Arc::clone(&ctx),
+            results_tx.clone(),
+            cancel_tx.clone(),
+        );
+        let fatal = Arc::clone(&fatal);
+        let dispatcher_error = fatal_tx.clone();
+        tokio::spawn(async move {
+            let result = dispatch_cpu(spool, gate, ctx, results).await;
+            if let Err(error) = &result {
+                fatal.store(true, SeqCst);
+                let _ = dispatcher_error.send(Some(error.clone()));
+                let _ = cancel.send(true);
+            }
+            result
+        })
+    };
     // Reads the input on its own thread. After fail-fast it keeps counting without sending, so the
     // summary still reports how many tasks never started.
     let reader = {
-        let (cancel, results) = (ctx.cancel.clone(), results_tx.clone());
-        tokio::task::spawn_blocking(move || {
+        let (cancel, results, error_cancel) =
+            (ctx.cancel.clone(), results_tx.clone(), cancel_tx.clone());
+        let fatal = Arc::clone(&fatal);
+        let reader_error = fatal_tx.clone();
+        let spool = spool::Writer(spool);
+        tokio::task::spawn_blocking(move || -> Result<usize> {
             let mut read = 0;
-            for input in tasks {
+            let mut tasks = tasks;
+            while !fatal.load(SeqCst) {
+                let Some(input) = tasks.next() else { break };
                 let i = read;
                 read += 1;
                 if *cancel.borrow() {
                     continue;
                 }
                 match input {
-                    Ok(task) => {
-                        let pool = match task.pool() {
-                            Pool::Cpu => 0,
-                            Pool::Net => 1,
-                            Pool::File => 2,
-                        };
-                        let _ = queues[pool].blocking_send((i, task));
-                    }
+                    Ok(task) => match &task {
+                        Task::Browser(_) => {
+                            if let Err(error) = spool.append(i, &task) {
+                                fatal.store(true, SeqCst);
+                                let _ = reader_error.send(Some(error.clone()));
+                                let _ = error_cancel.send(true);
+                                return Err(error);
+                            }
+                        }
+                        _ => {
+                            let pool = match task.pool() {
+                                Pool::Cpu => 0,
+                                Pool::Net => 1,
+                                Pool::File => 2,
+                            };
+                            let _ = queues[pool].blocking_send((i, task));
+                        }
+                    },
                     Err(problem) => {
                         let _ = results.blocking_send(Outcome {
                             i,
@@ -470,17 +607,42 @@ async fn drive(
                     }
                 }
             }
-            read
+            Ok(read)
         })
     };
     drop(results_tx);
-    let total = reader.await.map_err(|e| e.to_string())?;
+    let (total, cpu_result) = match await_input_and_cpu(reader, cpu_dispatcher, &mut fatal_rx).await
+    {
+        Ok(results) => results,
+        Err(error) => {
+            retune.abort();
+            return Err(error);
+        }
+    };
+    let mut dispatch_result = Ok(());
     for dispatcher in dispatchers {
-        dispatcher.await.map_err(|e| e.to_string())?;
+        tokio::select! {
+            result = dispatcher => {
+                if let Err(error) = result {
+                    dispatch_result = Err(error.to_string());
+                }
+            }
+            result = fatal_rx.wait_for(|error| error.is_some()) => {
+                retune.abort();
+                return Err(result.ok().and_then(|error| error.clone()).unwrap_or_else(|| "fatal task error".into()));
+            }
+        }
     }
-    let tally = writer.await.map_err(|e| e.to_string())??;
+    let tally = writer
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|result| result);
     retune.abort();
-    let peak = |g: &Gate| g.peak.load(SeqCst);
+    let total = total?;
+    cpu_result?;
+    dispatch_result?;
+    let tally = tally?;
+    let peak = |g: &Gate| g.state.lock().expect("gate state").peak;
     Ok(Summary {
         total,
         failed: tally.failed,
@@ -497,6 +659,30 @@ async fn drive(
     })
 }
 
+async fn await_input_and_cpu(
+    reader: tokio::task::JoinHandle<Result<usize>>,
+    cpu: tokio::task::JoinHandle<Result<()>>,
+    fatal: &mut watch::Receiver<Option<String>>,
+) -> Result<(Result<usize>, Result<()>)> {
+    let completed = async {
+        let total = reader
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+        let cpu_result = cpu
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+        (total, cpu_result)
+    };
+    tokio::select! {
+        result = completed => Ok(result),
+        _ = fatal.changed() => {
+            Err(fatal.borrow().clone().unwrap_or_else(|| "fatal task error".into()))
+        }
+    }
+}
+
 #[derive(Default)]
 struct Tally {
     done: usize,
@@ -505,17 +691,262 @@ struct Tally {
     failures: Vec<Outcome>,
 }
 
+#[derive(Default)]
+struct SessionQueue {
+    head: Option<u64>,
+    tail: Option<u64>,
+}
+
+fn cpu_finished(
+    name: Option<String>,
+    sessions: &mut HashMap<String, SessionQueue>,
+    ready: &mut VecDeque<String>,
+) {
+    if let Some(name) = name {
+        if sessions
+            .get(&name)
+            .expect("active browser session")
+            .head
+            .is_some()
+        {
+            ready.push_back(name);
+        } else {
+            sessions.remove(&name);
+        }
+    }
+}
+
+fn start_cpu_task(
+    i: usize,
+    task: Task,
+    name: Option<String>,
+    gate: Arc<Gate>,
+    ctx: Arc<Ctx>,
+    results: mpsc::Sender<Outcome>,
+    finished: mpsc::Sender<Option<String>>,
+) {
+    tokio::spawn(async move {
+        let outcome = if let Some(name) = &name {
+            execute_browser(i, task, name, &ctx).await
+        } else {
+            execute(i, task, &ctx).await
+        };
+        let _ = results.send(outcome).await;
+        // Keep the gate slot until completion has entered the bounded channel.
+        let _ = finished.send(name).await;
+        gate.leave();
+    });
+}
+
+/// Scan each input record once. Blocked sessions have linked FIFO records on
+/// disk; only running/ready sessions have an in-memory head and tail.
+async fn dispatch_cpu(
+    spool: Arc<spool::Spool>,
+    gate: Arc<Gate>,
+    ctx: Arc<Ctx>,
+    results: mpsc::Sender<Outcome>,
+) -> Result<()> {
+    let (finished_tx, mut finished) = mpsc::channel::<Option<String>>(QUEUE_DEPTH);
+    let mut sessions: HashMap<String, SessionQueue> = HashMap::new();
+    let mut ready = VecDeque::new();
+    let mut cursor = 0;
+    let mut deferred = 0usize;
+    let mut deferred_bytes = 0u64;
+    let mut scanned = 0usize;
+    let mut cancel = ctx.cancel.clone();
+    loop {
+        if *cancel.borrow() || results.is_closed() {
+            return Ok(());
+        }
+        while let Ok(name) = finished.try_recv() {
+            cpu_finished(name, &mut sessions, &mut ready);
+        }
+        if spool.should_reclaim(cursor, deferred_bytes)? {
+            let compact_spool = Arc::clone(&spool);
+            let compact_cancel = ctx.cancel.clone();
+            let mut compact_sessions = std::mem::take(&mut sessions);
+            let (updated, result) = tokio::task::spawn_blocking(move || {
+                let result = compact_spool.reclaim_with_sessions(
+                    cursor,
+                    deferred_bytes,
+                    &mut compact_sessions,
+                    &compact_cancel,
+                );
+                (compact_sessions, result)
+            })
+            .await
+            .map_err(|error| error.to_string())?;
+            sessions = updated;
+            if let Some(new_cursor) = result? {
+                cursor = new_cursor;
+            }
+            if *cancel.borrow() {
+                return Ok(());
+            }
+        }
+
+        // Register before examining the log and gate, to avoid losing a wakeup.
+        let changed = spool.changed.notified();
+        let freed = gate.freed.notified();
+        tokio::pin!(changed, freed);
+        changed.as_mut().enable();
+        freed.as_mut().enable();
+        let (record, closed) = spool.read(cursor)?;
+
+        // Alternate a scan step with each ready session. This bounds ready
+        // session bookkeeping even if distinct sessions continuously finish,
+        // while the scan still progresses past a busy session's backlog.
+        if !ready.is_empty() && (record.is_none() || scanned >= 1) && gate.try_enter() {
+            let name = ready.pop_front().expect("ready session");
+            let queue = sessions.get_mut(&name).expect("active browser session");
+            let head = queue.head.expect("ready session task");
+            let pending = match spool.read(head) {
+                Ok((Some(record), _)) => record,
+                Ok((None, _)) => {
+                    gate.leave();
+                    return Err("cannot read private task spool: missing queued task".into());
+                }
+                Err(error) => {
+                    gate.leave();
+                    return Err(error);
+                }
+            };
+            queue.head = pending.link;
+            if queue.head.is_none() {
+                queue.tail = None;
+            }
+            deferred -= 1;
+            deferred_bytes -= pending.next - head;
+            start_cpu_task(
+                pending.task.0,
+                pending.task.1,
+                Some(name),
+                Arc::clone(&gate),
+                Arc::clone(&ctx),
+                results.clone(),
+                finished_tx.clone(),
+            );
+            scanned = 0;
+            continue;
+        }
+
+        let mut wait = true;
+        if let Some(record) = record {
+            let (i, task) = record.task;
+            let name = match &task {
+                Task::Browser(browser) => Some(browser.session.clone()),
+                _ => None,
+            };
+            if let Some(queue) = name.as_ref().and_then(|name| sessions.get_mut(name)) {
+                if let Some(tail) = queue.tail {
+                    spool.link(tail, cursor)?;
+                } else {
+                    queue.head = Some(cursor);
+                }
+                queue.tail = Some(cursor);
+                deferred += 1;
+                deferred_bytes += record.next - cursor;
+                cursor = record.next;
+                wait = false;
+            } else if gate.try_enter() {
+                if let Some(name) = &name {
+                    sessions.insert(name.clone(), SessionQueue::default());
+                }
+                cursor = record.next;
+                start_cpu_task(
+                    i,
+                    task,
+                    name,
+                    Arc::clone(&gate),
+                    Arc::clone(&ctx),
+                    results.clone(),
+                    finished_tx.clone(),
+                );
+                wait = false;
+            }
+        } else if closed && deferred == 0 {
+            return Ok(());
+        }
+        if !wait {
+            scanned += 1;
+            if scanned % 256 == 0 {
+                tokio::task::yield_now().await;
+            }
+            continue;
+        }
+        tokio::select! {
+            _ = &mut changed => {}
+            _ = &mut freed => {}
+            name = finished.recv() => {
+                if let Some(name) = name {
+                    cpu_finished(name, &mut sessions, &mut ready);
+                }
+            }
+            _ = cancel.wait_for(|cancelled| *cancelled) => return Ok(()),
+            _ = results.closed() => return Ok(()),
+        }
+    }
+}
+
+async fn execute_browser(i: usize, task: Task, name: &str, ctx: &Ctx) -> Outcome {
+    let session = ctx.session(name);
+    let mut cancel = ctx.cancel.clone();
+    let guard = tokio::select! {
+        guard = session.lock() => Some(guard),
+        _ = cancel.wait_for(|cancelled| *cancelled) => None,
+    };
+    let uncertain = guard.is_some()
+        && ctx
+            .uncertain_sessions
+            .lock()
+            .expect("uncertain sessions")
+            .contains(name);
+    let outcome = if uncertain {
+        Outcome {
+            i, kind: task.kind(), task: task.label(), ok: false, cancelled: false, code: -1, ms: 0,
+            output: "browser session cannot run after a failed action or safety limit; confirm sessions are safe before reuse".into(),
+        }
+    } else if guard.is_some() && !*cancel.borrow() {
+        let outcome = execute(i, task, ctx).await;
+        if !outcome.ok {
+            ctx.uncertain_sessions
+                .lock()
+                .expect("uncertain sessions")
+                .insert(name.to_string());
+        }
+        outcome
+    } else {
+        Outcome {
+            i,
+            kind: task.kind(),
+            task: task.label(),
+            ok: false,
+            cancelled: true,
+            code: CANCELLED,
+            ms: 0,
+            output: "[cancelled by an earlier failure]".into(),
+        }
+    };
+    drop(guard);
+    ctx.forget_session(name, &session);
+    outcome
+}
+
 async fn dispatch(
     mut queue: mpsc::Receiver<(usize, Task)>,
     gate: Arc<Gate>,
     ctx: Arc<Ctx>,
     results: mpsc::Sender<Outcome>,
 ) {
+    let mut cancel = ctx.cancel.clone();
     while let Some((i, task)) = queue.recv().await {
         if *ctx.cancel.borrow() {
             return;
         }
-        gate.enter().await;
+        tokio::select! {
+            _ = gate.enter() => {}
+            _ = cancel.wait_for(|cancelled| *cancelled) => return,
+        }
         if *ctx.cancel.borrow() {
             gate.leave();
             return;
@@ -523,8 +954,8 @@ async fn dispatch(
         let (gate, ctx, results) = (Arc::clone(&gate), Arc::clone(&ctx), results.clone());
         tokio::spawn(async move {
             let outcome = execute(i, task, &ctx).await;
-            gate.leave();
             let _ = results.send(outcome).await;
+            gate.leave();
         });
     }
 }
@@ -546,6 +977,7 @@ async fn execute(i: usize, task: Task, ctx: &Ctx) -> Outcome {
             }
             None => (false, 127, "empty argv".into()),
         },
+        Task::Browser(browser) => browser_actions(browser, ctx).await,
         Task::Http(request) => http(request, ctx).await,
         Task::Grep { path, pattern } => match &*ctx.pattern(&pattern) {
             Ok(re) => {
@@ -571,6 +1003,140 @@ async fn execute(i: usize, task: Task, ctx: &Ctx) -> Outcome {
 
 type Done = (bool, i64, String);
 
+async fn browser_actions(browser: Browser, ctx: &Ctx) -> Done {
+    if browser.session.trim().is_empty()
+        || browser.session.contains(['/', '\\', '\0'])
+        || browser.session == "."
+        || browser.session == ".."
+    {
+        return (
+            false,
+            -1,
+            "browser session must be a nonempty name without path separators".into(),
+        );
+    }
+    if browser.commands.is_empty()
+        || browser
+            .commands
+            .iter()
+            .any(|args| args.is_empty() || args[0].trim().is_empty())
+    {
+        return (
+            false,
+            -1,
+            "browser commands must contain nonempty command arrays".into(),
+        );
+    }
+    let unsafe_flags = [
+        "--session",
+        "--cdp",
+        "--auto-connect",
+        "--profile",
+        "--config",
+        "--provider",
+        "--session-name",
+        "-p",
+    ];
+    if browser.commands.iter().flatten().any(|arg| {
+        unsafe_flags.iter().any(|flag| {
+            arg == flag
+                || arg
+                    .strip_prefix(flag)
+                    .is_some_and(|rest| rest.starts_with('='))
+        })
+    }) {
+        return (
+            false,
+            -1,
+            "browser commands cannot override session or shared browser connection settings".into(),
+        );
+    }
+    if let Err(message) = browser_connection_settings(&ctx.cwd) {
+        return (false, -1, message);
+    }
+    let buffer = Mutex::new(Vec::new());
+    for (i, args) in browser.commands.iter().enumerate() {
+        let mut command = tokio::process::Command::new("agent-browser");
+        command.arg("--session").arg(&browser.session).args(args);
+        let (ok, code, output) = shell(command, ctx).await;
+        let header = format!("[action {} (code {})]\n", i + 1, code);
+        keep_tail(&buffer, header.as_bytes());
+        keep_tail(&buffer, output.as_bytes());
+        if !output.ends_with('\n') {
+            keep_tail(&buffer, b"\n");
+        }
+        if !ok {
+            return (
+                false,
+                code,
+                String::from_utf8_lossy(&buffer.lock().expect("output buffer")).into_owned(),
+            );
+        }
+    }
+    let output = String::from_utf8_lossy(&buffer.lock().expect("output buffer")).into_owned();
+    (true, 0, output)
+}
+
+fn browser_connection_settings(cwd: &Path) -> std::result::Result<(), String> {
+    let vars = [
+        "AGENT_BROWSER_CDP",
+        "AGENT_BROWSER_AUTO_CONNECT",
+        "AGENT_BROWSER_PROFILE",
+        "AGENT_BROWSER_SESSION_NAME",
+        "AGENT_BROWSER_PROVIDER",
+    ];
+    for key in vars {
+        if std::env::var(key).ok().is_some_and(|value| {
+            !value.is_empty()
+                && (key != "AGENT_BROWSER_AUTO_CONNECT"
+                    || (value != "0"
+                        && !value.eq_ignore_ascii_case("false")
+                        && !value.eq_ignore_ascii_case("no")))
+        }) {
+            return Err(format!(
+                "browser task cannot use shared connection setting {key}"
+            ));
+        }
+    }
+    let paths = if let Some(path) = std::env::var_os("AGENT_BROWSER_CONFIG") {
+        vec![PathBuf::from(path)]
+    } else {
+        let home = std::env::var_os("HOME")
+            .filter(|home| !home.is_empty())
+            .ok_or_else(|| {
+                "cannot inspect agent-browser user configuration without HOME".to_string()
+            })?;
+        let mut paths = vec![PathBuf::from(home).join(".agent-browser/config.json")];
+        paths.push(cwd.join("agent-browser.json"));
+        paths
+    };
+    for path in paths {
+        let contents = match std::fs::read(&path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                return Err(
+                    "cannot inspect agent-browser configuration for shared connections".into(),
+                )
+            }
+        };
+        let config: serde_json::Value = serde_json::from_slice(&contents).map_err(|_| {
+            "cannot inspect agent-browser configuration for shared connections".to_string()
+        })?;
+        for key in ["cdp", "autoConnect", "profile", "provider", "sessionName"] {
+            if config
+                .get(key)
+                .is_some_and(|value| !value.is_null() && value != false && value != "")
+            {
+                return Err(format!(
+                    "browser task cannot use shared connection setting {key}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn blocking(work: impl FnOnce() -> std::io::Result<(i64, String)> + Send + 'static) -> Done {
     match tokio::task::spawn_blocking(work).await {
         Ok(Ok((code, output))) => (true, code, output),
@@ -592,7 +1158,18 @@ async fn pump(source: Option<impl AsyncRead + Unpin>, buffer: &Mutex<Vec<u8>>) {
     }
 }
 
+struct CommandGroup(i32);
+
+impl Drop for CommandGroup {
+    fn drop(&mut self) {
+        kill_group(self.0);
+    }
+}
+
 async fn shell(mut command: tokio::process::Command, ctx: &Ctx) -> Done {
+    if *ctx.cancel.borrow() {
+        return (false, CANCELLED, "[cancelled by an earlier failure]".into());
+    }
     command
         .current_dir(&ctx.cwd)
         .env("XSTACK_WORKER", "1")
@@ -605,7 +1182,7 @@ async fn shell(mut command: tokio::process::Command, ctx: &Ctx) -> Done {
         Ok(child) => child,
         Err(e) => return (false, 127, format!("cannot start: {e}")),
     };
-    let pgid = child.id().map_or(0, |id| id as i32);
+    let mut group = CommandGroup(child.id().map_or(0, |id| id as i32));
     let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
     let buffer = Mutex::new(Vec::new());
     let finished = async {
@@ -623,8 +1200,11 @@ async fn shell(mut command: tokio::process::Command, ctx: &Ctx) -> Done {
         _ = cancel.wait_for(|cancelled| *cancelled) => (CANCELLED, Some("\n[cancelled by an earlier failure]".to_string())),
     };
     if note.is_some() {
-        kill_group(pgid);
+        kill_group(group.0);
+        // Do not release a browser session while its CLI process is still alive.
+        let _ = child.wait().await;
     }
+    group.0 = 0;
     let mut output = String::from_utf8_lossy(&buffer.lock().expect("output buffer")).into_owned();
     output.push_str(note.as_deref().unwrap_or(""));
     (code == 0, code, output)
@@ -748,5 +1328,97 @@ fn lines(path: &Path) -> std::io::Result<(i64, String)> {
             return Ok((count, String::new()));
         }
         count += chunk[..n].iter().filter(|&&b| b == b'\n').count() as i64;
+    }
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+    #[tokio::test]
+    async fn aborted_command_terminates_its_process_group() {
+        let dir = std::env::temp_dir().join(format!("xstack-group-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("started"));
+        let _ = std::fs::remove_file(dir.join("orphan"));
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let ctx = Arc::new(Ctx {
+            cwd: dir.clone(),
+            timeout: Duration::from_secs(10),
+            retries: 0,
+            per_host: 1,
+            client: reqwest::Client::new(),
+            hosts: Mutex::new(HashMap::new()),
+            patterns: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(HashMap::new()),
+            uncertain_sessions: Mutex::new(UncertainSessions::default()),
+            cancel,
+        });
+        let task = tokio::spawn(async move {
+            let mut command = tokio::process::Command::new("sh");
+            command.args(["-c", "(sleep 1; touch orphan) & touch started; wait"]);
+            shell(command, &ctx).await
+        });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !dir.join("started").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        let _ = task.await;
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert!(
+            !dir.join("orphan").exists(),
+            "task descendant survived cancellation"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn dispatcher_failure_does_not_wait_for_blocked_input() {
+        let reader = tokio::spawn(std::future::pending::<Result<usize>>());
+        let (fatal_tx, mut fatal_rx) = watch::channel(None);
+        let dispatcher = tokio::spawn(async move {
+            fatal_tx
+                .send(Some("spool read failed".to_string()))
+                .unwrap();
+            Err("spool read failed".to_string())
+        });
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            await_input_and_cpu(reader, dispatcher, &mut fatal_rx),
+        )
+        .await
+        .expect("fatal scheduler errors must not wait for input");
+        assert_eq!(result.unwrap_err(), "spool read failed");
+    }
+
+    #[tokio::test]
+    async fn increasing_capacity_releases_all_newly_available_slots() {
+        let gate = Arc::new(Gate::new(1));
+        gate.enter().await;
+        let (ready, mut entered) = mpsc::unbounded_channel();
+        let (waiting, mut waiters) = mpsc::unbounded_channel();
+        for _ in 0..2 {
+            let gate = Arc::clone(&gate);
+            let ready = ready.clone();
+            let waiting = waiting.clone();
+            tokio::spawn(async move {
+                waiting.send(()).unwrap();
+                gate.enter().await;
+                ready.send(()).unwrap();
+            });
+        }
+        waiters.recv().await.unwrap();
+        waiters.recv().await.unwrap();
+        tokio::task::yield_now().await;
+        gate.resize(3);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            entered.recv().await.unwrap();
+            entered.recv().await.unwrap();
+        })
+        .await
+        .expect("newly available slots must be admitted without another completion");
     }
 }

@@ -16,7 +16,8 @@
 //!                                Run all checks in the foreground. The first failure stops the rest.
 //!   worker run --check "<cmd>"   run a command in the foreground using a shared CPU slot
 //!   worker split [-j N] [--each] [--keep-going] -- <cmd> [args...]
-//!                                Read items from stdin and append size-balanced groups to <cmd>.
+//!                                Read items from stdin and run size-balanced batches of at most 32 items.
+//!                                Idle workers take half another worker's unstarted items.
 //!                                With --each, run once per item and replace {} with the item.
 //!   worker diff-budget [--base <ref>] [--max N] [--exclude <path or suffix>]
 //!                                Exit with 1 if the number of changed lines exceeds the review budget.
@@ -53,7 +54,9 @@ struct Args {
 }
 
 fn number<T: std::str::FromStr>(flag: &str, value: Option<String>) -> Result<T> {
-    value.and_then(|v| v.parse().ok()).ok_or_else(|| format!("{flag} needs a number"))
+    value
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| format!("{flag} needs a number"))
 }
 
 fn parse(argv: Vec<String>) -> Result<Args> {
@@ -63,7 +66,9 @@ fn parse(argv: Vec<String>) -> Result<Args> {
         match a.as_str() {
             "--check" => args.check.push(it.next().ok_or("--check needs a command")?),
             "--copy" => args.copy.push(it.next().ok_or("--copy needs a path")?),
-            "--exclude" => args.exclude.push(it.next().ok_or("--exclude needs a path")?),
+            "--exclude" => args
+                .exclude
+                .push(it.next().ok_or("--exclude needs a path")?),
             "--timeout-ms" => args.timeout_ms = Some(number("--timeout-ms", it.next())?),
             "--parallel" => args.parallel = Some(number("--parallel", it.next())?),
             "--commits" => args.commits = Some(number("--commits", it.next())?),
@@ -90,7 +95,13 @@ fn print_rows(rows: &[Row]) {
             .as_ref()
             .map(|(sha, status)| format!(" (covered by {}: {})", short(sha), status.as_str()))
             .unwrap_or_default();
-        println!("{} {:<7} {}{}", short(&row.sha), row.status, row.subject, cover);
+        println!(
+            "{} {:<7} {}{}",
+            short(&row.sha),
+            row.status,
+            row.subject,
+            cover
+        );
         print_checks(&row.checks);
     }
 }
@@ -98,7 +109,11 @@ fn print_rows(rows: &[Row]) {
 fn print_checks(checks: &[CheckResult]) {
     for check in checks {
         if check.exit != 0 {
-            let note = if check.preexisting { " (also red at baseline)" } else { "" };
+            let note = if check.preexisting {
+                " (also red at baseline)"
+            } else {
+                ""
+            };
             println!("    FAIL {}{note}", check.cmd);
             for line in check.output.lines() {
                 println!("      {line}");
@@ -146,15 +161,32 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
                 },
             )?;
             queue::start_worker(repo, &exe()?)?;
-            println!("initialized, baseline {} {}", short(&entry.sha), entry.status.as_str());
+            println!(
+                "initialized, baseline {} {}",
+                short(&entry.sha),
+                entry.status.as_str()
+            );
             Ok(0)
         }
         "enqueue" => {
-            let reference = args.positional.first().map(String::as_str).unwrap_or("HEAD");
+            let reference = args
+                .positional
+                .first()
+                .map(String::as_str)
+                .unwrap_or("HEAD");
             let entry = queue::enqueue(repo, reference, true, false)?;
             queue::start_worker(repo, &exe()?)?;
-            let reused = entry.reused_from.as_ref().map(|s| format!(" (same tree as {})", short(s))).unwrap_or_default();
-            println!("{} {}{reused}, unverified depth {}", short(&entry.sha), entry.status.as_str(), queue::unverified_depth(repo)?);
+            let reused = entry
+                .reused_from
+                .as_ref()
+                .map(|s| format!(" (same tree as {})", short(s)))
+                .unwrap_or_default();
+            println!(
+                "{} {}{reused}, unverified depth {}",
+                short(&entry.sha),
+                entry.status.as_str(),
+                queue::unverified_depth(repo)?
+            );
             Ok(0)
         }
         "status" => {
@@ -163,8 +195,13 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
             Ok(0)
         }
         "wait" => {
-            let reference = args.positional.first().map(String::as_str).unwrap_or("HEAD");
-            let result = queue::wait_for(repo, reference, None, Some(&exe()?))?.ok_or("no result")?;
+            let reference = args
+                .positional
+                .first()
+                .map(String::as_str)
+                .unwrap_or("HEAD");
+            let result =
+                queue::wait_for(repo, reference, None, Some(&exe()?))?.ok_or("no result")?;
             println!("{} {}", short(&result.sha), result.status.as_str());
             print_checks(&result.checks);
             Ok(if result.status == Status::Pass { 0 } else { 1 })
@@ -186,14 +223,21 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
                 return Err("fast needs at least one --check".into());
             }
             let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-            let result = run::fast(&cwd, &args.check, args.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
+            let result = run::fast(
+                &cwd,
+                &args.check,
+                args.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
+            );
             match result.first_failed.and_then(|i| result.results[i].as_ref()) {
                 None => {
                     println!("FAST OK {} check(s) in {} ms", args.check.len(), result.ms);
                     Ok(0)
                 }
                 Some(failed) => {
-                    eprintln!("FAST FAIL {} (exit {}) after {} ms\n{}", failed.cmd, failed.exit, result.ms, failed.output);
+                    eprintln!(
+                        "FAST FAIL {} (exit {}) after {} ms\n{}",
+                        failed.cmd, failed.exit, result.ms, failed.output
+                    );
                     Ok(1)
                 }
             }
@@ -207,7 +251,8 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
         "split" => split(&args),
         "diff-budget" => {
             let max = args.max.unwrap_or(DEFAULT_MAX_LINES);
-            let measured = budget::measure(repo, args.base.as_deref().unwrap_or("HEAD"), &args.exclude)?;
+            let measured =
+                budget::measure(repo, args.base.as_deref().unwrap_or("HEAD"), &args.exclude)?;
             if measured.total <= max {
                 println!("DIFF OK {} line(s) changed (budget {max})", measured.total);
                 return Ok(0);
@@ -224,8 +269,14 @@ fn dispatch(command: &str, args: Args) -> Result<u8> {
         }
         "probe" => {
             let (_, power) = Meter::start();
-            let memory = power.mem_free_mb.map(|m| format!("{m} MB free")).unwrap_or_else(|| "memory unknown".into());
-            println!("POWER {} core(s), {:.1} busy, {memory}", power.cores, power.busy);
+            let memory = power
+                .mem_free_mb
+                .map(|m| format!("{m} MB free"))
+                .unwrap_or_else(|| "memory unknown".into());
+            println!(
+                "POWER {} core(s), {:.1} busy, {memory}",
+                power.cores, power.busy
+            );
             println!(
                 "BURST background {} job(s) at low priority ({RESERVE} core kept for you), foreground {} job(s)",
                 power.width(RESERVE, 0, args.job_mem_mb.unwrap_or(DEFAULT_JOB_MEM_MB)),
@@ -244,23 +295,54 @@ fn split(args: &Args) -> Result<u8> {
     if args.rest.is_empty() {
         return Err("split needs a command after --".into());
     }
-    let items: Vec<String> = io::stdin().lock().lines().map_while(|l| l.ok()).filter(|l| !l.trim().is_empty()).collect();
+    let items: Vec<String> = io::stdin()
+        .lock()
+        .lines()
+        .map_while(|l| l.ok())
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     if items.is_empty() {
         println!("SPLIT OK nothing to run");
         return Ok(0);
     }
     // Without -j, choose concurrency from available CPU and memory.
-    let workers = args.jobs.unwrap_or_else(|| Meter::start().1.width(0, 0, args.job_mem_mb.unwrap_or(DEFAULT_JOB_MEM_MB))).max(1);
-    let jobs = run::split_jobs(&items, &args.rest, workers, args.each);
+    let workers = args
+        .jobs
+        .unwrap_or_else(|| {
+            Meter::start()
+                .1
+                .width(0, 0, args.job_mem_mb.unwrap_or(DEFAULT_JOB_MEM_MB))
+        })
+        .max(1);
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    let result = run::run_all(Path::new(&cwd), &jobs, workers, !args.keep_going, args.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
+    let result = xstack_worker::split::run(
+        Path::new(&cwd),
+        &items,
+        &args.rest,
+        xstack_worker::split::SplitOptions {
+            workers,
+            each: args.each,
+            fail_fast: !args.keep_going,
+            timeout_ms: args.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
+        },
+    );
     let failed: Vec<&CheckResult> = match result.first_failed {
         None => Vec::new(),
         Some(first) if !args.keep_going => result.results[first].iter().collect(),
-        Some(_) => result.results.iter().flatten().filter(|r| r.exit != 0).collect(),
+        Some(_) => result
+            .results
+            .iter()
+            .flatten()
+            .filter(|r| r.exit != 0)
+            .collect(),
     };
     if failed.is_empty() {
-        println!("SPLIT OK {} job(s) over {} item(s) on {workers} core(s) in {} ms", jobs.len(), items.len(), result.ms);
+        println!(
+            "SPLIT OK {} job(s) over {} item(s) on {workers} core(s) in {} ms",
+            result.results.len(),
+            items.len(),
+            result.ms
+        );
         return Ok(0);
     }
     for f in &failed {

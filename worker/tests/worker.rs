@@ -1,14 +1,14 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use std::collections::BTreeMap;
 use xstack_worker::budget;
 use xstack_worker::probe::Power;
 use xstack_worker::queue::{self, InitOptions};
-use xstack_worker::run::{self, partition_by_size};
+use xstack_worker::run::{self, partition_indices_by_size};
 use xstack_worker::scheduler::{self, rank};
 use xstack_worker::state::{read_state, with_state, Entry, History, Status};
 
@@ -24,8 +24,17 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 fn sh(cwd: &Path, cmd: &str) -> String {
-    let out = Command::new("sh").arg("-c").arg(cmd).current_dir(cwd).output().unwrap();
-    assert!(out.status.success(), "{cmd}\n{}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{cmd}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
@@ -52,7 +61,10 @@ fn init(dir: &Path, checks: &[&str]) -> Entry {
 }
 
 fn init_with(dir: &Path, checks: &[&str], tweak: impl FnOnce(&mut InitOptions)) -> Entry {
-    let mut options = InitOptions { checks: checks.iter().map(|c| c.to_string()).collect(), ..Default::default() };
+    let mut options = InitOptions {
+        checks: checks.iter().map(|c| c.to_string()).collect(),
+        ..Default::default()
+    };
     tweak(&mut options);
     queue::init(dir, options).unwrap()
 }
@@ -79,21 +91,46 @@ fn log_file() -> PathBuf {
 }
 
 fn ran(log: &Path) -> Vec<String> {
-    fs::read_to_string(log).unwrap_or_default().lines().map(str::to_string).collect()
+    fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
 }
 
 fn cli(dir: &Path, args: &[&str]) -> Output {
-    Command::new(EXE).args(args).arg("--repo").arg(dir).output().unwrap()
+    Command::new(EXE)
+        .args(args)
+        .arg("--repo")
+        .arg(dir)
+        .output()
+        .unwrap()
 }
 
 fn cli_stdin(cwd: &Path, args: &[&str], input: &str) -> Output {
-    let mut child = Command::new(EXE).args(args).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let mut child = Command::new(EXE)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
     child.wait_with_output().unwrap()
 }
 
 fn text(out: &Output) -> String {
-    format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
 }
 
 #[test]
@@ -112,7 +149,10 @@ fn a_passing_commit_is_recorded_and_opens_the_gate() {
 fn a_failing_commit_keeps_its_output_and_blocks_the_gate() {
     let dir = make_repo();
     let base = head(&dir);
-    init(&dir, &["test ! -f broken.txt || { echo broken found; exit 3; }"]);
+    init(
+        &dir,
+        &["test ! -f broken.txt || { echo broken found; exit 3; }"],
+    );
     let a = commit(&dir, "broken.txt");
     enqueue(&dir);
     scheduler::drain(&dir).unwrap();
@@ -122,14 +162,20 @@ fn a_failing_commit_keeps_its_output_and_blocks_the_gate() {
     assert!(e.checks[0].output.contains("broken found"));
     let gate = queue::gate(&dir, &base, false).unwrap();
     assert!(!gate.ok);
-    assert!(gate.problems.join("\n").contains(&format!("{} failed", &a[..7])));
+    assert!(gate
+        .problems
+        .join("\n")
+        .contains(&format!("{} failed", &a[..7])));
 }
 
 #[test]
 fn a_check_that_fails_once_then_passes_is_flaky_not_red() {
     let dir = make_repo();
     let counter = temp_dir("count").join("n");
-    let flaky = format!("n=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}; [ $n -ge 2 ]", c = counter.display());
+    let flaky = format!(
+        "n=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}; [ $n -ge 2 ]",
+        c = counter.display()
+    );
     let baseline = init(&dir, &[&flaky]);
     scheduler::drain(&dir).unwrap();
     let e = entry(&dir, &baseline.sha);
@@ -150,7 +196,9 @@ fn waiting_commits_coalesce_into_the_newest_and_the_skipped_one_is_covered() {
     assert_eq!(entry(&dir, &a).status, Status::Skipped);
     scheduler::drain(&dir).unwrap();
     assert_eq!(ran(&log), vec![baseline.sha, b.clone()]);
-    let covered = queue::wait_for(&dir, &a, Some(Duration::from_secs(5)), None).unwrap().unwrap();
+    let covered = queue::wait_for(&dir, &a, Some(Duration::from_secs(5)), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(covered.sha, b);
     assert_eq!(covered.status, Status::Pass);
 }
@@ -216,7 +264,9 @@ fn untracked_files_named_in_copy_reach_the_worktree() {
     fs::write(dir.join(".gitignore"), ".env\n").unwrap();
     sh(&dir, "git add -A && git commit -qm ignore");
     fs::write(dir.join(".env"), "SECRET=1\n").unwrap();
-    init_with(&dir, &["grep -q SECRET=1 .env"], |o| o.copy = vec![".env".into()]);
+    init_with(&dir, &["grep -q SECRET=1 .env"], |o| {
+        o.copy = vec![".env".into()]
+    });
     let a = commit(&dir, "a.txt");
     enqueue(&dir);
     scheduler::drain(&dir).unwrap();
@@ -232,19 +282,24 @@ fn a_check_already_red_at_the_baseline_is_preexisting_and_the_gate_says_so() {
     enqueue(&dir);
     scheduler::drain(&dir).unwrap();
     assert!(entry(&dir, &a).checks[0].preexisting);
-    assert!(queue::gate(&dir, &base, false).unwrap().problems.join("\n").contains("was already red before this work"));
+    assert!(queue::gate(&dir, &base, false)
+        .unwrap()
+        .problems
+        .join("\n")
+        .contains("was already red before this work"));
 }
 
 #[test]
 fn a_hung_check_is_killed_at_its_timeout_and_not_rerun() {
     let dir = make_repo();
-    let baseline = init_with(&dir, &["sleep 5"], |o| o.timeout_ms = Some(300));
-    let started = Instant::now();
+    let log = log_file();
+    let command = format!("echo started >> {}; exec sleep 30", log.display());
+    let baseline = init_with(&dir, &[&command], |o| o.timeout_ms = Some(300));
     scheduler::drain(&dir).unwrap();
     let check = entry(&dir, &baseline.sha).checks[0].clone();
     assert!(check.timed_out);
     assert_eq!(check.exit, 124);
-    assert!(started.elapsed() < Duration::from_millis(2500));
+    assert_eq!(ran(&log), ["started"]);
 }
 
 #[test]
@@ -315,7 +370,9 @@ fn status_shows_a_skipped_commit_as_covered_by_its_descendant() {
 #[test]
 fn the_cli_runs_the_worker_in_the_background_and_wait_reports_the_result() {
     let dir = make_repo();
-    assert!(cli(&dir, &["init", "--check", "test -f README.md"]).status.success());
+    assert!(cli(&dir, &["init", "--check", "test -f README.md"])
+        .status
+        .success());
     commit(&dir, "a.txt");
     let queued = cli(&dir, &["enqueue"]);
     assert!(queued.status.success(), "{}", text(&queued));
@@ -329,26 +386,49 @@ fn the_cli_runs_the_worker_in_the_background_and_wait_reports_the_result() {
 #[test]
 fn checks_run_side_by_side_up_to_the_slot_count() {
     let dir = make_repo();
-    init_with(&dir, &["sleep 1", "sleep 1"], |o| o.parallel = Some(2));
-    let started = Instant::now();
+    let baseline = init_with(
+        &dir,
+        &[
+            "touch first; while [ ! -f second ]; do sleep 0.01; done",
+            "touch second; while [ ! -f first ]; do sleep 0.01; done",
+        ],
+        |o| {
+            o.parallel = Some(2);
+            o.timeout_ms = Some(10000);
+        },
+    );
     scheduler::drain(&dir).unwrap();
-    assert!(started.elapsed() < Duration::from_millis(1800));
+    let result = entry(&dir, &baseline.sha);
+    assert_eq!(result.status, Status::Pass);
+    assert_eq!(result.checks.len(), 2);
 }
 
 #[test]
 fn one_slot_runs_checks_one_after_another() {
     let dir = make_repo();
-    init_with(&dir, &["sleep 1", "sleep 1"], |o| o.parallel = Some(1));
-    let started = Instant::now();
+    let log = log_file();
+    let baseline = init_with(
+        &dir,
+        &[
+            &format!("echo first >> {}", log.display()),
+            &format!("echo second >> {}", log.display()),
+        ],
+        |o| o.parallel = Some(1),
+    );
     scheduler::drain(&dir).unwrap();
-    assert!(started.elapsed() >= Duration::from_millis(2000));
+    assert_eq!(entry(&dir, &baseline.sha).status, Status::Pass);
+    assert_eq!(ran(&log), ["first", "second"]);
 }
 
 #[test]
 fn a_shard_check_is_split_across_every_slot() {
     let dir = make_repo();
     let log = log_file();
-    let baseline = init_with(&dir, &[&format!("echo {{shard}}/{{shards}} >> {}", log.display())], |o| o.parallel = Some(3));
+    let baseline = init_with(
+        &dir,
+        &[&format!("echo {{shard}}/{{shards}} >> {}", log.display())],
+        |o| o.parallel = Some(3),
+    );
     scheduler::drain(&dir).unwrap();
     let mut lines = ran(&log);
     lines.sort();
@@ -363,8 +443,14 @@ fn a_shard_check_is_split_across_every_slot() {
 #[test]
 fn the_fast_gate_stops_at_the_first_failure_instead_of_waiting_for_the_slowest() {
     let started = Instant::now();
-    let result = run::fast(&std::env::temp_dir(), &["sleep 5".into(), "echo type error; exit 4".into()], 60_000);
-    let failed = result.results[result.first_failed.expect("a failure")].as_ref().unwrap();
+    let result = run::fast(
+        &std::env::temp_dir(),
+        &["sleep 5".into(), "echo type error; exit 4".into()],
+        60_000,
+    );
+    let failed = result.results[result.first_failed.expect("a failure")]
+        .as_ref()
+        .unwrap();
     assert_eq!(failed.exit, 4);
     assert!(failed.output.contains("type error"));
     assert!(started.elapsed() < Duration::from_millis(2000));
@@ -372,7 +458,11 @@ fn the_fast_gate_stops_at_the_first_failure_instead_of_waiting_for_the_slowest()
 
 #[test]
 fn the_fast_gate_passes_when_every_check_passes() {
-    let result = run::fast(&std::env::temp_dir(), &["true".into(), "sleep 0.2".into()], 60_000);
+    let result = run::fast(
+        &std::env::temp_dir(),
+        &["true".into(), "sleep 0.2".into()],
+        60_000,
+    );
     assert!(result.first_failed.is_none());
 }
 
@@ -380,7 +470,10 @@ fn the_fast_gate_passes_when_every_check_passes() {
 fn a_busy_slot_held_by_another_process_makes_the_background_check_wait() {
     let dir = make_repo();
     let lock = format!("{}.0", queue::slot_lock_base(&dir).unwrap().display());
-    let mut holder = Command::new("flock").args([lock.as_str(), "sleep", "1.5"]).spawn().unwrap();
+    let mut holder = Command::new("flock")
+        .args([lock.as_str(), "sleep", "1.5"])
+        .spawn()
+        .unwrap();
     std::thread::sleep(Duration::from_millis(200));
     init_with(&dir, &["true"], |o| o.parallel = Some(1));
     let started = Instant::now();
@@ -399,28 +492,61 @@ fn partition_by_size_balances_the_work_across_groups() {
         "c" => 10,
         _ => 5,
     };
-    let groups = partition_by_size(&items, 2, size);
+    let groups = partition_indices_by_size(&items, 2, size);
     assert_eq!(groups.len(), 2);
-    let loads: Vec<u64> = groups.iter().map(|g| g.iter().map(|i| size(i)).sum()).collect();
-    assert!(loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 10, "{loads:?}");
-    assert_eq!(partition_by_size(&items[..1], 4, size).len(), 1);
+    let loads: Vec<u64> = groups
+        .iter()
+        .map(|g| g.iter().map(|&i| size(&items[i])).sum())
+        .collect();
+    assert!(
+        loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 10,
+        "{loads:?}"
+    );
+    assert_eq!(partition_indices_by_size(&items[..1], 4, size).len(), 1);
 }
 
 #[test]
 fn split_runs_one_job_per_item_across_cores_at_once() {
     let cwd = temp_dir("split");
-    let started = Instant::now();
-    let out = cli_stdin(&cwd, &["split", "-j", "4", "--each", "--", "sh", "-c", "sleep 1"], "a\nb\nc\nd\n");
+    let script = "touch ready-{}; while [ ! -f ready-a ] || [ ! -f ready-b ] || [ ! -f ready-c ] || [ ! -f ready-d ]; do sleep 0.01; done; echo {} >> completed";
+    let out = cli_stdin(
+        &cwd,
+        &[
+            "split",
+            "-j",
+            "4",
+            "--each",
+            "--timeout-ms",
+            "10000",
+            "--",
+            "sh",
+            "-c",
+            script,
+        ],
+        "a\nb\nc\nd\n",
+    );
     assert!(out.status.success(), "{}", text(&out));
-    assert!(text(&out).contains("SPLIT OK 4 job(s)"));
-    assert!(started.elapsed() < Duration::from_millis(1800));
+    let mut completed = ran(&cwd.join("completed"));
+    completed.sort();
+    assert_eq!(completed, ["a", "b", "c", "d"]);
 }
 
 #[test]
 fn split_each_replaces_the_item_placeholder() {
     let cwd = temp_dir("split");
     let log = log_file();
-    let out = cli_stdin(&cwd, &["split", "--each", "--", "sh", "-c", &format!("echo {{}} >> {}", log.display())], "a\nb\nc\n");
+    let out = cli_stdin(
+        &cwd,
+        &[
+            "split",
+            "--each",
+            "--",
+            "sh",
+            "-c",
+            &format!("echo {{}} >> {}", log.display()),
+        ],
+        "a\nb\nc\n",
+    );
     assert!(out.status.success(), "{}", text(&out));
     let mut lines = ran(&log);
     lines.sort();
@@ -434,7 +560,20 @@ fn split_groups_append_the_items_to_the_command() {
         fs::write(cwd.join(name), "content\n").unwrap();
     }
     let log = log_file();
-    let out = cli_stdin(&cwd, &["split", "-j", "2", "--", "sh", "-c", &format!("for f; do echo $f >> {}; done", log.display()), "_"], "x1\nx2\nx3\n");
+    let out = cli_stdin(
+        &cwd,
+        &[
+            "split",
+            "-j",
+            "2",
+            "--",
+            "sh",
+            "-c",
+            &format!("for f; do echo $f >> {}; done", log.display()),
+            "_",
+        ],
+        "x1\nx2\nx3\n",
+    );
     assert!(out.status.success(), "{}", text(&out));
     assert!(text(&out).contains("SPLIT OK 2 job(s) over 3 item(s)"));
     let mut lines = ran(&log);
@@ -445,12 +584,32 @@ fn split_groups_append_the_items_to_the_command() {
 #[test]
 fn split_stops_at_the_first_failure() {
     let cwd = temp_dir("split");
-    let started = Instant::now();
-    let out = cli_stdin(&cwd, &["split", "--each", "--", "sh", "-c", "if [ {} = bad ]; then echo broke; exit 3; fi; sleep 5"], "slow\nbad\n");
+    let script = "if [ {} = bad ]; then while [ ! -f slow-started ]; do sleep 0.01; done; echo broke; exit 3; fi; echo $$ > slow-pid; touch slow-started; exec sleep 30";
+    let out = cli_stdin(
+        &cwd,
+        &[
+            "split",
+            "-j",
+            "2",
+            "--each",
+            "--timeout-ms",
+            "10000",
+            "--",
+            "sh",
+            "-c",
+            script,
+        ],
+        "slow\nbad\n",
+    );
     assert_eq!(out.status.code(), Some(1));
     assert!(text(&out).contains("SPLIT FAIL"));
     assert!(text(&out).contains("broke"));
-    assert!(started.elapsed() < Duration::from_millis(2000));
+    let pid: i32 = fs::read_to_string(cwd.join("slow-pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(!xstack_worker::state::alive(pid));
 }
 
 #[test]
@@ -469,7 +628,11 @@ fn the_diff_budget_counts_changed_and_untracked_lines_but_not_lockfiles() {
 
 fn jobs(dir: &Path, stage: &str) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir.join(".git/xstack-worker/jobs").join(stage))
-        .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
         .unwrap_or_default();
     names.sort();
     names
@@ -478,7 +641,9 @@ fn jobs(dir: &Path, stage: &str) -> Vec<String> {
 #[test]
 fn every_check_is_its_own_job_file_and_the_folder_is_empty_after() {
     let dir = make_repo();
-    init_with(&dir, &["sleep 1", "sleep 1 # second"], |o| o.parallel = Some(2));
+    init_with(&dir, &["sleep 1", "sleep 1 # second"], |o| {
+        o.parallel = Some(2)
+    });
     let worker = {
         let dir = dir.clone();
         std::thread::spawn(move || scheduler::drain(&dir).unwrap())
@@ -489,51 +654,115 @@ fn every_check_is_its_own_job_file_and_the_folder_is_empty_after() {
     }
     let running = jobs(&dir, "running");
     assert_eq!(running.len(), 2, "{running:?}");
-    assert!(running[0].starts_with("000000-000-") && running[1].starts_with("000000-001-"), "{running:?}");
+    assert!(
+        running[0].starts_with("000000-000-") && running[1].starts_with("000000-001-"),
+        "{running:?}"
+    );
     worker.join().unwrap();
     for stage in ["queued", "running", "done"] {
-        assert!(jobs(&dir, stage).is_empty(), "{stage} left {:?}", jobs(&dir, stage));
+        assert!(
+            jobs(&dir, stage).is_empty(),
+            "{stage} left {:?}",
+            jobs(&dir, stage)
+        );
     }
 }
 
 #[test]
 fn the_check_that_failed_last_time_runs_first_then_the_slowest() {
-    let cmds: Vec<String> = ["lint", "unit", "e2e", "new"].iter().map(|s| s.to_string()).collect();
+    let cmds: Vec<String> = ["lint", "unit", "e2e", "new"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let mut history = BTreeMap::new();
-    history.insert("lint".to_string(), History { ms: 100, failed: false });
-    history.insert("unit".to_string(), History { ms: 2_000, failed: true });
-    history.insert("e2e".to_string(), History { ms: 60_000, failed: false });
+    history.insert(
+        "lint".to_string(),
+        History {
+            ms: 100,
+            failed: false,
+        },
+    );
+    history.insert(
+        "unit".to_string(),
+        History {
+            ms: 2_000,
+            failed: true,
+        },
+    );
+    history.insert(
+        "e2e".to_string(),
+        History {
+            ms: 60_000,
+            failed: false,
+        },
+    );
     assert_eq!(rank(&cmds, &history), vec![1, 3, 2, 0]);
 }
 
 #[test]
 fn the_burst_width_follows_idle_cores_and_free_memory() {
-    let idle = Power { cores: 8, busy: 0.0, mem_free_mb: Some(64_000) };
+    let idle = Power {
+        cores: 8,
+        busy: 0.0,
+        mem_free_mb: Some(64_000),
+    };
     assert_eq!(idle.width(1, 0, 768), 7);
     assert_eq!(idle.width(0, 0, 768), 8);
-    let loaded = Power { cores: 8, busy: 5.0, mem_free_mb: Some(64_000) };
+    let loaded = Power {
+        cores: 8,
+        busy: 5.0,
+        mem_free_mb: Some(64_000),
+    };
     assert_eq!(loaded.width(1, 0, 768), 2);
-    assert_eq!(loaded.width(1, 4, 768), 6, "our own running jobs count as capacity");
-    let tight = Power { cores: 8, busy: 0.0, mem_free_mb: Some(1_600) };
+    assert_eq!(
+        loaded.width(1, 4, 768),
+        6,
+        "our own running jobs count as capacity"
+    );
+    let tight = Power {
+        cores: 8,
+        busy: 0.0,
+        mem_free_mb: Some(1_600),
+    };
     assert_eq!(tight.width(1, 0, 768), 2);
-    let saturated = Power { cores: 2, busy: 2.0, mem_free_mb: None };
+    let saturated = Power {
+        cores: 2,
+        busy: 2.0,
+        mem_free_mb: None,
+    };
     assert_eq!(saturated.width(1, 0, 768), 1, "always at least one job");
 }
 
 #[test]
 fn the_first_real_failure_stops_the_commits_other_jobs() {
     let dir = make_repo();
-    init_with(&dir, &["[ -f slow.txt ] && sleep 5 || true", "test ! -f bad.txt || { echo bad; exit 3; }"], |o| o.parallel = Some(2));
+    init_with(
+        &dir,
+        &[
+            "[ -f slow.txt ] && sleep 5 || true",
+            "test ! -f bad.txt || { echo bad; exit 3; }",
+        ],
+        |o| o.parallel = Some(2),
+    );
     scheduler::drain(&dir).unwrap();
     commit(&dir, "slow.txt");
     let a = commit(&dir, "bad.txt");
     enqueue(&dir);
     let started = Instant::now();
     scheduler::drain(&dir).unwrap();
-    assert!(started.elapsed() < Duration::from_millis(2500), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_millis(2500),
+        "{:?}",
+        started.elapsed()
+    );
     let e = entry(&dir, &a);
     assert_eq!(e.status, Status::Fail);
-    assert_eq!(e.checks.len(), 1, "the stopped job is left out: {:?}", e.checks);
+    assert_eq!(
+        e.checks.len(),
+        1,
+        "the stopped job is left out: {:?}",
+        e.checks
+    );
     assert_eq!(e.checks[0].exit, 3);
 }
 
@@ -541,7 +770,14 @@ fn the_first_real_failure_stops_the_commits_other_jobs() {
 fn a_check_red_at_the_baseline_never_stops_the_others() {
     let dir = make_repo();
     let log = log_file();
-    init_with(&dir, &["test -f never.txt", &format!("sleep 0.3; echo ran >> {}", log.display())], |o| o.parallel = Some(2));
+    init_with(
+        &dir,
+        &[
+            "test -f never.txt",
+            &format!("sleep 0.3; echo ran >> {}", log.display()),
+        ],
+        |o| o.parallel = Some(2),
+    );
     let a = commit(&dir, "a.txt");
     enqueue(&dir);
     scheduler::drain(&dir).unwrap();
@@ -563,7 +799,11 @@ fn two_commits_verify_at_once_in_their_own_worktrees() {
     let started = Instant::now();
     assert!(!queue::gate(&dir, &base, true).unwrap().ok);
     scheduler::drain(&dir).unwrap();
-    assert!(started.elapsed() < Duration::from_millis(1900), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_millis(1900),
+        "{:?}",
+        started.elapsed()
+    );
     assert!(queue::gate(&dir, &base, true).unwrap().ok);
 }
 
@@ -571,5 +811,9 @@ fn two_commits_verify_at_once_in_their_own_worktrees() {
 fn probe_reports_the_power_and_the_burst() {
     let out = Command::new(EXE).arg("probe").output().unwrap();
     assert!(out.status.success(), "{}", text(&out));
-    assert!(text(&out).contains("POWER ") && text(&out).contains("BURST background"), "{}", text(&out));
+    assert!(
+        text(&out).contains("POWER ") && text(&out).contains("BURST background"),
+        "{}",
+        text(&out)
+    );
 }

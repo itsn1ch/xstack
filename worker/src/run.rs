@@ -50,12 +50,21 @@ pub struct RunOptions<'a> {
 
 impl RunOptions<'_> {
     pub fn new(timeout_ms: u64) -> Self {
-        RunOptions { timeout_ms, slots: None, nice: false, inherit: false, cancel: None, pgid: None }
+        RunOptions {
+            timeout_ms,
+            slots: None,
+            nice: false,
+            inherit: false,
+            cancel: None,
+            pgid: None,
+        }
     }
 }
 
 pub fn cores() -> usize {
-    thread::available_parallelism().map(|n| n.get()).unwrap_or(2)
+    thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2)
 }
 
 pub fn kill_group(pgid: i32) {
@@ -72,7 +81,12 @@ fn acquire_slot(slots: &Slots) -> Option<File> {
     loop {
         for i in &slots.order {
             let path = format!("{}.{i}", slots.lock_base.display());
-            let Ok(file) = OpenOptions::new().create(true).truncate(false).write(true).open(&path) else {
+            let Ok(file) = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&path)
+            else {
                 return None;
             };
             // SAFETY: flock on a descriptor this function owns.
@@ -93,7 +107,10 @@ fn keep_tail(buffer: &Mutex<Vec<u8>>, chunk: &[u8]) {
     }
 }
 
-fn pump(mut source: impl Read + Send + 'static, buffer: Arc<Mutex<Vec<u8>>>) -> thread::JoinHandle<()> {
+fn pump(
+    mut source: impl Read + Send + 'static,
+    buffer: Arc<Mutex<Vec<u8>>>,
+) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut chunk = [0u8; 8192];
         while let Ok(n) = source.read(&mut chunk) {
@@ -109,7 +126,12 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     let label = spec.label();
     let _slot = options.slots.and_then(acquire_slot);
     if options.cancel.is_some_and(|c| c.load(SeqCst)) {
-        return CheckResult { cmd: label, exit: 130, output: "[cancelled before start]".into(), ..Default::default() };
+        return CheckResult {
+            cmd: label,
+            exit: 130,
+            output: "[cancelled before start]".into(),
+            ..Default::default()
+        };
     }
     let mut command = match spec {
         Spec::Shell(cmd) => {
@@ -123,7 +145,10 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
             c
         }
     };
-    command.current_dir(cwd).env("XSTACK_WORKER", "1").process_group(0);
+    command
+        .current_dir(cwd)
+        .env("XSTACK_WORKER", "1")
+        .process_group(0);
     if options.nice {
         // SAFETY: setpriority is async-signal-safe and only lowers this child's own priority.
         unsafe {
@@ -134,16 +159,27 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
         }
     }
     if options.inherit {
-        command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
+        command
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
     } else {
-        command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
     }
 
     let started = Instant::now();
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
-            return CheckResult { cmd: label, exit: 127, output: format!("cannot start: {e}"), ..Default::default() };
+            return CheckResult {
+                cmd: label,
+                exit: 127,
+                output: format!("cannot start: {e}"),
+                ..Default::default()
+            };
         }
     };
     let pgid = child.id() as i32;
@@ -187,7 +223,14 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     } else {
         status.and_then(|s| s.code()).unwrap_or(1)
     };
-    CheckResult { cmd: label, exit, ms: started.elapsed().as_millis() as u64, output, timed_out, ..Default::default() }
+    CheckResult {
+        cmd: label,
+        exit,
+        ms: started.elapsed().as_millis() as u64,
+        output,
+        timed_out,
+        ..Default::default()
+    }
 }
 
 /// Runs `work` over every item on at most `limit` threads, keeping results in input order.
@@ -206,7 +249,14 @@ pub fn pool<T: Sync, R: Send>(items: &[T], limit: usize, work: impl Fn(&T) -> R 
             });
         }
     });
-    results.into_iter().map(|m| m.into_inner().expect("result slot").expect("every item ran")).collect()
+    results
+        .into_iter()
+        .map(|m| {
+            m.into_inner()
+                .expect("result slot")
+                .expect("every item ran")
+        })
+        .collect()
 }
 
 pub struct RunAll {
@@ -217,7 +267,13 @@ pub struct RunAll {
 }
 
 /// Runs up to `limit` jobs at once. With `fail_fast`, the first failure stops the remaining jobs.
-pub fn run_all(cwd: &Path, jobs: &[Spec], limit: usize, fail_fast: bool, timeout_ms: u64) -> RunAll {
+pub fn run_all(
+    cwd: &Path,
+    jobs: &[Spec],
+    limit: usize,
+    fail_fast: bool,
+    timeout_ms: u64,
+) -> RunAll {
     let started = Instant::now();
     let cancel = AtomicBool::new(false);
     let pgids: Vec<AtomicI32> = jobs.iter().map(|_| AtomicI32::new(0)).collect();
@@ -227,7 +283,11 @@ pub fn run_all(cwd: &Path, jobs: &[Spec], limit: usize, fail_fast: bool, timeout
         if cancel.load(SeqCst) {
             return None;
         }
-        let options = RunOptions { cancel: Some(&cancel), pgid: Some(&pgids[i]), ..RunOptions::new(timeout_ms) };
+        let options = RunOptions {
+            cancel: Some(&cancel),
+            pgid: Some(&pgids[i]),
+            ..RunOptions::new(timeout_ms)
+        };
         let result = run_command(cwd, &jobs[i], &options);
         if result.exit != 0 {
             if fail_fast {
@@ -245,7 +305,11 @@ pub fn run_all(cwd: &Path, jobs: &[Spec], limit: usize, fail_fast: bool, timeout
         }
         Some(result)
     });
-    RunAll { results, first_failed: first_failed.into_inner().expect("first failure"), ms: started.elapsed().as_millis() as u64 }
+    RunAll {
+        results,
+        first_failed: first_failed.into_inner().expect("first failure"),
+        ms: started.elapsed().as_millis() as u64,
+    }
 }
 
 /// Runs all checks in the foreground without waiting for slots. The first failure stops the rest.
@@ -254,42 +318,53 @@ pub fn fast(cwd: &Path, checks: &[String], timeout_ms: u64) -> RunAll {
     run_all(cwd, &jobs, jobs.len(), true, timeout_ms)
 }
 
-/// Splits items into at most `jobs` groups of similar total size.
-/// Assigns each item to the smallest group, starting with the largest item.
-pub fn partition_by_size(items: &[String], jobs: usize, size: impl Fn(&str) -> u64) -> Vec<Vec<String>> {
-    let mut sized: Vec<(u64, &String)> = items.iter().map(|item| (size(item), item)).collect();
-    sized.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
-    let mut groups: Vec<(u64, Vec<String>)> = vec![(0, Vec::new()); jobs.max(1)];
-    for (weight, item) in sized {
-        let lightest = groups.iter_mut().min_by_key(|g| g.0).expect("at least one group");
+/// Assigns input occurrences to size-balanced queues, starting with the largest.
+pub fn partition_indices_by_size(
+    items: &[String],
+    jobs: usize,
+    size: impl Fn(&str) -> u64,
+) -> Vec<Vec<usize>> {
+    let mut sized: Vec<(u64, usize)> = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (size(item), index))
+        .collect();
+    sized.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| items[a.1].cmp(&items[b.1]))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    let mut groups: Vec<(u64, Vec<usize>)> =
+        vec![(0, Vec::new()); jobs.max(1).min(items.len().max(1))];
+    for (weight, index) in sized {
+        let lightest = groups
+            .iter_mut()
+            .min_by_key(|g| g.0)
+            .expect("at least one group");
         lightest.0 += weight.max(1);
-        lightest.1.push(item.clone());
+        lightest.1.push(index);
     }
-    groups.into_iter().map(|g| g.1).filter(|g| !g.is_empty()).collect()
+    groups
+        .into_iter()
+        .map(|g| g.1)
+        .filter(|g| !g.is_empty())
+        .collect()
 }
 
 pub fn file_size(path: &str) -> u64 {
     std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
-/// Builds jobs for `split`. With `each`, creates one job per item and replaces `{}` or appends the item.
-/// Otherwise, creates one job per size-balanced group and appends the group's items.
-pub fn split_jobs(items: &[String], command: &[String], jobs: usize, each: bool) -> Vec<Spec> {
-    if each {
-        return items
-            .iter()
-            .map(|item| {
-                let has_slot = command.iter().any(|a| a.contains("{}"));
-                let mut argv: Vec<String> = command.iter().map(|a| a.replace("{}", item)).collect();
-                if !has_slot {
-                    argv.push(item.clone());
-                }
-                Spec::Argv(argv)
-            })
-            .collect();
-    }
-    partition_by_size(items, jobs, file_size)
-        .into_iter()
-        .map(|group| Spec::Argv(command.iter().cloned().chain(group).collect()))
+pub(crate) fn item_jobs(items: &[String], command: &[String]) -> Vec<Spec> {
+    let has_slot = command.iter().any(|arg| arg.contains("{}"));
+    items
+        .iter()
+        .map(|item| {
+            let mut argv: Vec<String> = command.iter().map(|arg| arg.replace("{}", item)).collect();
+            if !has_slot {
+                argv.push(item.clone());
+            }
+            Spec::Argv(argv)
+        })
         .collect()
 }

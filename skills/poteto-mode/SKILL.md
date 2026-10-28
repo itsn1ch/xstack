@@ -27,6 +27,7 @@ Remaining triggers:
 - Nontrivial multi-step → write the throughput checkpoint (Feature step 3) with its time estimate and agent count (Subagents, **Estimate, then swarm automatically**).
 - Any prose surface, yours or a delegate's (the reply to the user, commit messages, PR titles and descriptions, specs, tickets, docs) → the **unslop** skill, before it is committed, posted, or sent. Mandatory. Write the reply per **Writing the reply**. Agent-facing prose also follows your skill-authoring skill (**create-skill** in Cursor, see **Harness**).
 - Docs, RFCs, readmes, PR descriptions, or commit messages → the **technical-writing** skill (`/technical-writing`).
+- Any PR text (title, description, edit, review reply, verdict comment), from you, a delegate, or another skill → `/technical-writing`, then `/unslop`, both every time, per **PR prose** in `playbooks/opening-a-pr.md`. Mandatory.
 - Before commit → the `deslop` skill from the `cursor-team-kit` plugin (`/deslop`). Without it, see **Harness**.
 - Before every commit, yours or a delegate's → run the project formatter on every changed file, per **Formatting**. Mandatory, with no skip-with-reason escape and no Laziness Protocol override.
 - Before review → the **no-comments** skill (`/no-comments`).

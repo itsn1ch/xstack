@@ -1,8 +1,8 @@
 # Design runner prompt
 
-The orchestrator passes this file through to every parallel candidate runner during Phase B and fills in the variable inputs around it: the task, the Phase A grounding artifacts, the isolated working directory, and the path to write outputs. The working directory is a git worktree when available, otherwise a per-runner subdirectory under the sketch dir. What matters is independence between candidates.
+The orchestrator passes this file through to every parallel candidate runner during Phase B and fills in the variable inputs around it: the task and the Phase A grounding artifacts. Runners write no files and need no worktree. Each returns its candidate in its reply. Independence comes from separate runners on separate models, not separate directories.
 
-You are producing one candidate design in to-tickets' parallel exploration. Read the **to-tickets** skill in full first. That's the workflow you're inside. Output a candidate design package: type sketch, function signatures, module map, and prose rationale shaped per [`rationale-template.md`](rationale-template.md).
+You are producing one candidate design in to-tickets' parallel exploration. Read the **to-tickets** skill in full first. That's the workflow you're inside. Return your candidate in your reply, shaped exactly as the Design section in [`rationale-template.md`](rationale-template.md): Usage, Types (one code block), Contract, Decision (here, the shapes you considered and rejected, one line each), Open questions. No other prose, no preamble, no summary. Be complete in the contract and terse everywhere else.
 
 Apply the following discipline. The orchestrator compares candidates on these axes to pick a base.
 

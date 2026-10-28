@@ -15,9 +15,9 @@ The red step is never skipped. What adapts is the kind of check. When a test wou
 1. **Understand the behavior.** Identify the intended behavior, current behavior, affected path, and smallest observable reproduction. For a feature, each acceptance criterion is one intended behavior.
 2. **Choose the narrowest executable check.** Prefer the closest unit, component, integration, or regression test already used for that codepath. If no practical test path is obvious, do not create one from scratch just to satisfy the workflow.
 3. **Write the failing test first.** Add the smallest focused test that would have caught the bug, or that proves one acceptance criterion of the feature. The test should encode intended behavior, not mirror the current implementation.
-4. **Run the new test before changing code.** Confirm it fails for the intended reason. If it passes or fails for an unrelated reason, correct the test or reproduction before editing the implementation.
+4. **Run the new test before changing code.** Run only that test, through the runner's name or file filter, not the suite. Confirm it fails for the intended reason. If it passes or fails for an unrelated reason, correct the test or reproduction before editing the implementation.
 5. **Make the change.** Make the smallest production change that satisfies the intended behavior while preserving nearby contracts.
-6. **Rerun the test.** Confirm the test now passes, then run the affected tests around it.
+6. **Rerun the test.** Confirm the test now passes, then run the affected tests around it through the runner's own selection. The full suite runs once per verifiable unit, per poteto-mode's **Tests and verification**, not after every criterion.
 7. **Repeat per behavior.** For a feature, take the next acceptance criterion and go back to step 3. One red, one green at a time.
 
 ## If a Failing Test Is Impractical

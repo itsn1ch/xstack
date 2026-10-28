@@ -23,6 +23,8 @@ Spawn all N subagents in one message with `run_in_background: true`, each with t
 
 If a candidate produces no output, proceed with N-1 and note the dropout.
 
+Read each candidate as soon as it finishes and score it against the rubric then. The pick in Phase D still waits until every candidate has been read in full.
+
 ## Phase C: Cross-judge
 
 After all Phase B candidates complete, choose one model from the `arena cross-judge pool` line in the pstack settings file. If the file or that line is missing, choose from `claude-opus-5-5-xhigh` and `grok-4.7-xhigh-fast`. Prefer a different model family from the parent's. Spawn one readonly judge subagent on that model. It sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with your reading in Phase D. Don't spawn it while candidates are still writing.

@@ -10,15 +10,17 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
 
 ## Process
 
+**Write tight.** One line per fact. No section restates another; reference story and criterion IDs instead. Omit optional fields that are empty. A section with nothing to say gets one line ("None."). Coverage stays complete. Length comes only from real stories and criteria.
+
 1. Explore the repo to understand the current state of the codebase, if you haven't already. Use the project's domain glossary vocabulary throughout the spec, and respect any ADRs in the area you're touching.
 
 2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
 
-Check with the user that these seams match their expectations.
+Check with the user that these seams match their expectations. Keep drafting step 3 while you wait, since seams shape only Testing Decisions. Fold the answer in before publishing.
 
 3. Build the User Stories section using the coverage rules and per-story structure below. Check every agreed outcome and constraint against the stories before publishing. Each in-scope requirement must map to at least one story and observable acceptance criterion; merge stories that repeat the same actor, outcome, and conditions. Preserve existing story IDs when revising a spec so later tickets can refer to them.
 
-4. Write the spec using the template below, then publish it using the configured tracker operations. For local Markdown, write `.scratch/<feature-slug>/spec.md` with the configured publication status; for a remote tracker, create the spec issue and apply the label mapped from `ready-for-agent`. No additional triage is needed. If an unresolved decision prevents writing a verifiable in-scope outcome, report the blocker and keep the spec as a draft rather than marking it ready.
+4. Write the spec using the template below, then publish it using the configured tracker operations. For local Markdown, create the epic folder and write only `.scratch/<epic-slug>/spec.md`, starting with `# <Epic title>` and a `Status:` line holding the configured publication status. Later skills add to this same file and an `issues/` folder beside it, never other files; for a remote tracker, create the spec issue and apply the label mapped from `ready-for-agent`. No additional triage is needed. If an unresolved decision prevents writing a verifiable in-scope outcome, report the blocker and keep the spec as a draft rather than marking it ready.
 
 <spec-template>
 
@@ -32,7 +34,7 @@ The solution to the problem, from the user's perspective.
 
 ## User Stories
 
-Write an extensive, non-duplicative set of stories covering the agreed feature, grouped by user journey or capability. Coverage, not a minimum story count, determines completeness. Enrich the detail of agreed behavior; additional features need evidence from the conversation or established project behavior.
+Write a complete, non-duplicative set of stories covering the agreed feature, grouped by user journey or capability. Coverage, not a minimum story count, determines completeness. Enrich the detail of agreed behavior; additional features need evidence from the conversation or established project behavior.
 
 ### Coverage rules
 

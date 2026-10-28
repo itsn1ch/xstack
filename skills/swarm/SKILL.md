@@ -35,6 +35,8 @@ Every brief stands alone. Include the goal, scope, exact slice or race arm, how 
 
 If a worker drops out, proceed with N-1 and note it.
 
+While workers run, aggregate each result as it arrives instead of waiting for the slowest. Check a result against its brief at once, so a respawn for a missing SHA or method starts early. A wave-2 slice starts as soon as a slot frees, not when the whole first wave ends. For a `first pass` race, stop the other arms once one result passes the verify step.
+
 ## Phase C: Aggregate
 
 Read the terminal results. Drop a result that does not record the SHAs and method its brief names, and respawn that worker once. After a second miss, record a gap. A gap does not count as a pass. For coverage, every required slice needs a result. For a race, apply the selection rule declared up front. Use first pass, rank all, or best-of. Do not paste raw worker dumps.

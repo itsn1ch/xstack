@@ -1,0 +1,9 @@
+[package]
+name = "check-tickets"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Checks that an epic's tickets form one continuous chain from spec criteria to the final result."
+
+[dependencies]
+regex = "1"

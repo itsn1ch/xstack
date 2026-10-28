@@ -2,7 +2,7 @@
 
 **You own the design. Plan, review, verify.** Delegate implementation. Stay in the lead.
 
-1. `how` over the affected subsystem.
+1. `how` over the affected subsystem. A fresh grounding from earlier in the session satisfies this step, per **Fastest route** item 2. Step 2's design reuses this grounding and never runs `how` again.
 2. Design at the size the tier earns, per **Scale the ceremony to the tier** in the Subagents section. The full route is `to-tickets` for parallel design exploration.
 3. Write the throughput checkpoint as four todo items. A dimension that genuinely does not apply (single file, no fan-out) keeps its item with `n/a: <reason>` rather than being dropped:
    - **Blocking first steps.** Gates run before fan-out.

@@ -19,12 +19,14 @@ A configured tracker wins over remote inference. Otherwise propose GitHub for a 
 Record these operations in the tracker configuration:
 
 - Type: local Markdown. Root: `.scratch/` in this project.
-- A spec is `.scratch/<feature-slug>/spec.md`.
-- Each ticket is `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order. Use one file per ticket.
+- An epic is one folder, `.scratch/<epic-slug>/`, holding only `spec.md` and `issues/`.
+- `spec.md` holds the spec, its `# Design` section (written by to-tickets), and each evolution as an appended `# Evolution <NN>: <title>` section.
+- `issues/00-overview.md` is the epic's map (file tree, architecture, order, plain-words summary). It is never `ready-for-agent`.
+- Each ticket is `.scratch/<epic-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order. Use one file per ticket.
 - Read an issue or spec from its path; append comments under `## Comments` when needed.
 - Publication means writing the corresponding file. Preserve existing files; choose an unused slug or obtain approval before replacing an existing spec.
 - Dependencies are `Blocked by` ticket numbers/titles; no remote issue links exist.
-- The configured `ready-for-agent` status goes in the spec's `Status:` field and the ticket's `Status` field from its template.
+- The configured `ready-for-agent` status goes in the spec's `Status:` line, each evolution section's `Status:` line, and the ticket's `Status` field from its template.
 
 Setup writes configuration only. It does not create a sample spec, ticket, or `.scratch/` hierarchy.
 

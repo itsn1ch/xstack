@@ -10,6 +10,8 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
 
 ## Process
 
+**Write tight.** One line per fact. Reference IDs and earlier sections instead of copying them. Omit optional fields that are empty. A section with nothing to say gets one line with its reason. Depth follows the risk level, never padding.
+
 0. **Discover progressively and assess risk.** Reuse evidence already in context. Inspect in this order:
    1. Conversation and explicit user decisions.
    2. Project instructions, domain glossary, and relevant ADRs.
@@ -20,7 +22,11 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
    7. Referenced dependencies and callers, expanding only where evidence warrants.
    8. Relevant Git history when needed to resolve intent, divergence, or compatibility.
 
-   Local specs live at `.scratch/<feature-slug>/spec.md` and `evol-<NN>-<slug>.md`; remote specs are the feature issue and linked evolutions. Inventory all prior evolution references and allocated story/criterion IDs; read the bodies relevant to the affected behavior and follow their references. Mandatory baseline evidence is not optional at SMALL. Missing historical specs or contracts are recorded, not fabricated.
+   The order is a priority, not a serial chain. Read the sources that need no earlier finding (usually 2 to 5) in one batch of parallel calls, then expand into 6 to 8 from what they show. Expansion reads that do not depend on each other also go out together.
+
+   **Resume, don't restart.** If a draft of this evolution already exists (a local `# Evolution <NN>` section with a non-ready Status, a draft tracker issue, or this session's evidence map), continue from it and redo only the parts its new inputs change. A baseline from an earlier spec or draft counts as verified for the code and tests it cites only when `git diff --stat <its sha or date>..HEAD -- <those paths>` is empty. Re-read changed paths. Never reuse a baseline without that check.
+
+   A local epic is one file, `.scratch/<epic-slug>/spec.md`: the original spec, its `# Design` section, and each evolution as a `# Evolution <NN>: <title>` section in publication order. One read covers all of them. Remote specs are the feature issue and linked evolutions. Inventory all prior evolution references and allocated story/criterion IDs; read the bodies relevant to the affected behavior and follow their references. Mandatory baseline evidence is not optional at SMALL. Missing historical specs or contracts are recorded, not fabricated.
 
    Maintain a compact internal evidence map: `Source | Relevant finding | Confidence (Known/Inferred/Unknown) | Affected story or contract | Remaining uncertainty`. Reuse it instead of rereading sources or copying large excerpts. Expand when a caller, invariant, shared writer, or divergence indicates additional impact.
 
@@ -51,7 +57,7 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
    - **Blocking:** a wrong assumption changes behavior, violates an invariant, breaks compatibility, or makes a criterion unverifiable.
    - **Non-blocking:** does not materially affect the agreed outcome; record in Further Notes and proceed.
 
-   Ask only genuine blocking decisions, one high-impact question at a time, with an evidence-supported recommendation and its consequence. Ask about intent, not lookup facts. Follow consequential branches until their behavioral implications are resolved; reuse prior answers rather than asking equivalent questions. Show conflicts with code, contracts, earlier specs, or decisions and ask only if evidence cannot settle the intended outcome.
+   Ask only genuine blocking decisions, each with an evidence-supported recommendation and its consequence. Blocking questions whose answers do not depend on each other go together in one structured question call, up to the tool's limit, most consequential first. A question whose framing depends on another answer waits for that answer. While the user answers, keep working on the parts the open questions do not affect. Ask about intent, not lookup facts. Follow consequential branches until their behavioral implications are resolved; reuse prior answers rather than asking equivalent questions. Show conflicts with code, contracts, earlier specs, or decisions and ask only if evidence cannot settle the intended outcome.
 
    An explicit user deferral of a blocking decision stays in Further Notes with its affected stories/contracts and keeps the entire evolution draft. Do not treat an inferred answer as confirmed or place unresolved choices in committed criteria. Non-blocking Inferred/Unknown entries need not become Known.
 
@@ -79,13 +85,13 @@ Read the project's agent instructions and follow their issue-tracker, triage-lab
 
    Readiness requires step 5's checks, usable configured publication operations, and no unresolved blocking decision or unknown applicable Compatibility outcome. Explicitly deferred blockers keep the entire spec draft, not partly ready. Report the precise blocker; use a supported non-ready status, or retain the draft in the response if no safe draft operation exists. Never apply the ready mapping to a draft.
 
-   For local Markdown, write `.scratch/<feature-slug>/evol-<NN>-<slug>.md`, starting at `01` or incrementing the feature's highest existing evolution number. Set `Status:` to the configured publication value only when ready. Preserve the original and all earlier evolution specs. Check the destination is unused; if occupied, refresh numbering rather than overwrite history.
+   For local Markdown, append one `# Evolution <NN>: <title>` section to the end of the epic's `spec.md`, with the template's sections as `##` headings under it. `<NN>` starts at `01` or increments the highest existing evolution heading. Put a `Status:` line right under the heading, set to the configured publication value only when ready. Create no other file. Never edit the original spec or an earlier evolution section. To resume a draft, edit only its own section. The `# Design` section belongs to to-tickets, which updates it from Contract Impact.
 
-   For a remote tracker, use configured operations to create the evolution issue, reference the original and earlier evolutions in Feature, and link to the original and previous evolution without rewriting historical spec bodies. Apply the mapped ready label/status only after content and required links are verified. No additional triage is needed.
+   For a remote tracker, use configured operations to create the evolution issue (link operations that need only its identifier run together in one batch), reference the original and earlier evolutions in Feature, and link to the original and previous evolution without rewriting historical spec bodies. Apply the mapped ready label/status only after content and required links are verified. No additional triage is needed.
 
    Read back the local file or remote issue and verify its complete body, stable references/numbering, required links, and actual label/status. Report its path/URL and verified status. A failed or partial operation is not publication success: inspect the created artifact before retrying to avoid duplicates; withhold readiness until required operations succeed.
 
-The tickets come from **to-tickets**, which updates the design contract first and then slices only the delta.
+The tickets come from **to-tickets**, which updates the design contract first and then slices only the delta. In the same session, to-tickets reuses this run's evidence map and Baseline as its Phase A grounding, so it does not re-read the feature.
 
 <evol-spec-template>
 

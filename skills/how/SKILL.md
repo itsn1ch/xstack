@@ -14,6 +14,8 @@ Every spawn is a Task subagent with `subagent_type: generalPurpose` and `readonl
 
 If the scope is ambiguous, state your interpretation and explore. The user can redirect.
 
+First check for a fresh answer. If this session already produced a `how` output that covers the question, and `git diff --stat <its sha> -- <its paths>` is empty, present it and stop. If only some of its files changed, run the simple path over the changed files with the earlier output as context.
+
 - **Simple** (a single module, a small utility, a narrow question such as "how does function X work"): no explorers. Spawn one explainer that explores and explains in one pass, built from `references/explainer-prompt.md` without the explorer-findings section. Go to step 4.
 - **Complex** (a subsystem spanning multiple files or services, a cross-cutting feature, a full architectural overview): go to step 2.
 
@@ -23,7 +25,7 @@ When in doubt, take the simple path.
 
 ## 2. Explore (complex only)
 
-Decompose the question into 2 to 4 angles, each a distinct slice of the subsystem. Spawn all explorers in a single message, each with `references/explorer-prompt.md` and its angle filled in.
+Decompose the question into 2 to 4 angles, each a distinct slice of the subsystem. Spawn all explorers in a single message, each with `references/explorer-prompt.md` and its angle filled in. While they run, fill in the explainer prompt's fixed parts so step 3 spawns the moment the last explorer returns.
 
 ## 3. Synthesize (complex only)
 

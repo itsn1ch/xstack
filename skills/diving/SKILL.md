@@ -70,17 +70,21 @@ Run the steps in this order. Do not skip one, and do not reorder them. Keep only
 
 ### A. Locate
 
-Find the exact code tied to the symptom with targeted searches. Search for the error string, route, handler, function, query, or the state mutation. Record three things:
+Start from what the caller handed you. A repro command, a stack trace, a failing test, or an earlier diving report for the same symptom already locates part of the path. A verified hop from an earlier report stays verified when `git diff --stat <its sha> -- <its paths>` is empty. Re-verify only hops whose files changed.
+
+Find the exact code tied to the symptom with targeted searches. Search for the error string, route, handler, function, query, or the state mutation. Send the independent searches together in one batch, not one after another. Record three things:
 
 - The entry point.
 - The symptom location.
 - The files in between.
 
-Read function bodies and small ranges, not whole files. Do not open unrelated modules. For a flow too large to locate this way, run the **how** skill on that slice, then open each location it names yourself before you use it.
+Read function bodies and small ranges, not whole files. Do not open unrelated modules.
+
+**Regression shortcut.** When the symptom is a regression with a known-good revision, and a level-1 probe tells good from bad deterministically, run `git bisect run <probe>` in an isolated worktree as one swarm level-1 check. It narrows the search to one commit's diff. Trace the hops that diff touches first. The commit is history, not the boundary. Steps B to G still apply in full. For a flow too large to locate this way, run the **how** skill on that slice, then open each location it names yourself before you use it.
 
 ### B. Trace
 
-Follow the actual caller-to-callee chain from the entry point to the symptom. For each hop, record these:
+Follow the actual caller-to-callee chain from the entry point to the symptom. Pick the shorter direction. When the symptom is a concrete wrong value at a known location (a stack frame, an assertion, a log line), start there and walk backward through the producers of the wrong value until a hop's inputs hold. Walk forward from the entry point when the defect is a missing operation or an ordering problem. Either direction records the same hops. For each hop, record these:
 
 - The `path:line`.
 - The caller and the callee.
@@ -190,7 +194,7 @@ Each worker's brief stands alone and carries these things:
 - "Read-only. Probes outside the tree. Report the removal."
 - The return format: `PASS`, `ISSUES`, or `BLOCKED`, with the actual output or the lines read.
 
-Independent checks go out in one wave. That includes the upstream-holds checks, the boundary-violates check, and several bisection midpoints at once. A check that depends on another result waits for the next wave.
+Independent checks go out in one wave. That includes the upstream-holds checks, the boundary-violates check, and several bisection midpoints at once. A check that depends on another result waits for the next wave. While a wave runs, the root keeps tracing the open facts the wave does not settle and drafts the next wave's briefs. It never waits idle on workers.
 
 Cap the workers per the swarm skill's step 4: poteto-mode's hardware cap, plus the test slots in **Tests and verification** for checks that run tests. A verification swarm is not budget-capped. Without those policies, fall back to `max(1, min(floor(cores / 2), floor(available GB / 3)))` local workers. Use at most one level 2 check at a time. Never run a level 3 check without permission. When the harness has no subagent tool, run the checks yourself one after another, in the same format.
 

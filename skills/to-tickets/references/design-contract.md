@@ -1,6 +1,6 @@
 # Design contract
 
-The contract is the single source of truth for a design. The to-tickets skill writes it, implementation honors it, and tickets mode slices it. It ships as the `Contract` section of the rationale, committed with the type sketch. On any conflict between a ticket, a comment, or a chat message and the contract, the contract wins. Change the contract first, then everything derived from it.
+The contract is the single source of truth for a design. The to-tickets skill writes it, implementation honors it, and tickets mode slices it. It lives in the `Contract` part of the epic's Design section (`# Design` in `spec.md`, or the design comment on a remote spec issue). On any conflict between a ticket, a comment, or a chat message and the contract, the contract wins. Change the contract first, then everything derived from it.
 
 The contract has three parts, in this order. Each part may only use names defined in the part before it.
 
@@ -66,7 +66,7 @@ Rules:
 
 ## 3. Flow
 
-The ordered sequence from the caller's entry point to the final observable result. One numbered list per use case in the rationale's Usage section, in the same order as that usage.
+The ordered sequence from the caller's entry point to the final observable result. One numbered list per use case in the Design section's Usage, in the same order as that usage.
 
 ```
 Use case: customer pays for an order

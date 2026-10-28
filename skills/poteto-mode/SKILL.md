@@ -40,7 +40,7 @@ Remaining triggers:
 
 ## Principles
 
-Read the leaf skill in full for any principle you apply. Each entry names when it applies. Each leaf is the **principle-<title>** skill, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its name.
+Read the leaf skill in full for any principle you apply. Read every leaf the task needs in one batch of parallel reads, not one at a time as each comes up. Each entry names when it applies. Each leaf is the **principle-<title>** skill, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its name.
 
 **Core**
 
@@ -123,7 +123,17 @@ These rules apply directly. They do not require a separate leaf skill, subagent,
 2. **Slices.** Split the work into slices that touch disjoint files and can be verified alone, per **principle-separate-before-serializing-shared-state**. Size each slice to finish in about 30 minutes.
 3. **Agent count.** Spawn `min(slices, tier cap, budget cap, hardware cap)` agents in one message. The tier cap is 1 for easy, 2 for medium, and 4 for high, because spawn and merge overhead eats the gain on short work. The budget cap follows the `# budget` line, since every agent spends tokens: `small` 1, `medium` 2, `large` 4, `unlimited` the hardware cap. With no line, use `large`. The hardware cap applies only to local agents. At task start, read cores and available memory and take `max(1, min(floor(cores / 2), floor(available GB / 3)))`, since one local agent with its own worktree, build, and tests needs about two cores and 3 GB. On Linux, read `nproc` and the `available` column of `free -g`. On macOS, read `sysctl -n hw.ncpu`, and take available memory as the free plus inactive pages from `vm_stat` times its page size. If neither works, use a hardware cap of 2 and say so. When slices run tests or builds, the test slots in **Tests and verification** also bound the count. The hardware cap is one total for every local agent running at once, so slices, arena runners, verifiers, and each parallel PR owner's own agents share it. Agents past the cap wait for the next wave. Cloud agents skip the hardware cap. With one slice or a cap of 1, work solo.
    The tier and budget caps bound only these code-writing slices. Panels (to-tickets, arena, interrogate) and verification swarms keep the size their skill or role line sets.
-4. **Estimate message.** One short message: the tier, the solo estimate, the slices, the agent count with the cap that bound it, the hardware read (cores, available GB), and the wall-clock estimate (the longest slice per wave, plus about 10 minutes for the contract and about 10 for merge and verification). Label every number a guess. In the final reply, report the actual wall-clock time next to the estimate.
+4. **Engineer wait budget.** The tier measures agent time. The engineer's experience is the time they wait, so every plan also meets these targets (guesses from common practice, not measured here):
+
+   | Wait | Target | Ceiling |
+   | --- | --- | --- |
+   | Foreground gate before a commit | under 30 s | 1 min |
+   | First reviewable result (a commit, a ticket, a finding) | 15 to 30 min | 45 min |
+   | Progress line during a longer task | every ~10 min | 15 min |
+   | Diff per reviewable result | under ~400 lines | split above that (`worker diff-budget --base <base>`) |
+
+   A task whose first reviewable result would land after 30 minutes is split into smaller results, each committed and reported as it lands. A gate that runs past its ceiling moves its heavy part to **Background verification** or splits it across cores.
+5. **Estimate message.** One short message: the tier, the solo estimate, the slices, the agent count with the cap that bound it, the hardware read (cores, available GB), when the engineer gets the first reviewable result, and the wall-clock estimate (the longest slice per wave, plus about 10 minutes for the contract and about 10 for merge and verification). Label every number a guess. In the final reply, report the actual wall-clock time next to the estimate.
 
 **Scale the ceremony to the tier.** Design and review gates cost wall-clock time, so each one runs at the size the work earns. Correctness gates never shrink: reproduction, the TDD red step, verification on the real surface, formatting, unslop, and the tests stay at full strength in every tier.
 
@@ -138,7 +148,7 @@ Any one-way-door decision (a public API, a schema, persisted data, a security bo
 
 **Run independent gates together.** Read-only gates on the same SHA run at the same time: verification, `interrogate`, and a verification swarm do not wait for each other. Gates that edit code (`no-comments`, `deslop`, formatting) run one after another, then the read-only gates run once on the result.
 
-**Speed never costs capability.** Every swarmed agent runs the same role model at the same budget effort a solo agent would, and fast mode keeps its urgency rule. The time comes from these moves instead:
+**Speed never costs capability.** Every swarmed agent runs the same role model at the same budget effort a solo agent would, and fast mode keeps its urgency rule. The time comes from these moves instead, plus the general moves in **Fastest route**:
 
 - **Contract first.** The root writes and lands the shared contract (types, interfaces, schema, fixtures) before the fan-out, so slices never block on each other or diverge.
 - **Parallel slices.** Each agent gets its own worktree, the file pointers it needs, and the slice's own verification command.
@@ -149,6 +159,23 @@ Any one-way-door decision (a public API, a schema, persisted data, a security bo
 You own every subagent's work. Review the diff and write your own summary, don't pass through what it said. A second opinion is the same prompt against a different model. Agreement is high-signal.
 
 **Fresh subagents by default.** Give new work to a fresh subagent with consolidated scope, meaning the original brief, every later directive, and the prior agent's report and branch. This holds for a fix round, a follow-up, a retry, and the next queue item. Resume, message, or queue a follow-up on an existing subagent only when the new work strictly needs state that lives in that agent and is costly to move: its local checkout, its uncommitted changes, or a process it still runs, such as a dev server, a simulator, or a babysit watcher. A stop or hold order to a running agent is not reuse. A role such as a PR owner outlives its agent. Once that agent returns, a fresh agent takes the role's next round. Interrupt-chained resumes silently drop directives, so fire a fresh subagent with consolidated scope rather than trusting a "done" summary.
+
+## Fastest route
+
+Speed comes from removing waiting, repetition, and wasted work. It never comes from skipping a gate, lowering a model, or weakening evidence. Apply these moves everywhere, including the routed skills (**to-evol**, **to-tickets**, **diving**, **how**, **swarm**).
+
+1. **Batch independent calls.** Reads, searches, and checks that do not depend on each other go out in one message. Serial calls are only for a call that needs the previous result.
+2. **Ground once, reuse everywhere.** A grounding artifact (a `how` output, an evidence map, a diving trace, a design contract) produced this session is reused by every later gate on the same subsystem. A later skill that would ground again (to-tickets Phase A, Feature step 1, Refactoring step 1) reuses it and reads only what changed since. Check freshness with `git diff --stat <sha-it-was-built-on> -- <its paths>`. Empty diff means reuse as is. A non-empty diff means re-read only the changed files and update the affected entries.
+3. **Incremental, never from scratch.** On a retry, pushback, follow-up, or new round, carry forward every result that still holds and redo only the part whose inputs changed. A passed gate on an unchanged SHA and unchanged files stays passed. Rerun it only when its inputs changed.
+4. **Pipeline the root.** While subagents or slow commands run, the root does the next independent step: reads the next files, drafts the brief for the next wave, prepares the verification command, or loads tracker configuration. The root never idles waiting.
+5. **Cheapest sufficient source first.** Answer a fact from the context already in hand, then a targeted search, then a small read range, then a subagent, then a run. Stop at the first source that settles it. Escalate only when the cheaper source cannot.
+6. **Stop at sufficiency.** Each skill defines when its work is done. Stop there. Extra investigation, extra candidates, or extra polish past the done line costs time and adds no capability.
+7. **Hardware before subagents.** Mechanical work runs as parallel OS processes, not subagents. A process starts in milliseconds, costs no tokens, and needs no context. A subagent costs seconds to minutes to spawn and must re-read the context. Tests, type checks, lint, formatting, builds, searches, and codemods run side by side across cores: `worker fast` for the foreground gate, `{shard}` checks for a suite, `worker split` or the runner's own workers for a sweep over many files. Spawn a subagent only for work that needs a model's judgment or writes code from a brief.
+8. **Fail fast.** Run the cheapest check that can falsify the current plan before the expensive work that assumes it: a type check of one file before a full build, an affected test before the full suite, a one-line probe before an integration run.
+9. **Scope follows the request.** Two modes, picked from the user's words and named in the first todo.
+   - **Incremental** is the default for a specific feature, fix, or ticket. Ground, design, test, and verify only the changed scope and what depends on it: affected tests, gates over the changed files, passed gates reused on an unchanged SHA. The full suite runs on every commit in the background, per **Background verification**.
+   - **Full** runs when the user asks to verify everything ("verify all", "check everything", "full verification", "verifikasi semua", "semuanya"), or before a release. Every gate runs fresh over the whole branch: full suite, heavy suites, formatter check on every changed file, `interrogate`, and verification on the real surface. No passed gate is reused. The reply waits for `worker gate <base> --each`.
+   Correctness gates never shrink in either mode. Incremental only narrows what they run over.
 
 ## Harness
 
@@ -166,6 +193,7 @@ pstack was written for Cursor. In another harness (Claude Code, Codex, Pi, OpenC
 
 Write the reply clean as you draft it. A cleanup pass after drafting does not remove these patterns.
 
+- **Result first, no padding.** Lead with what changed or what was found. No restated plan, no process narration, no recap of the request. Length follows the content.
 - **Short declarative sentences.** One thought per sentence, ended with a period.
 - **No long-dash character anywhere.** Write a file-list bullet as a sentence ("`main.js` owns persistence and the IPC handlers") and a bold section header as its own sentence ("**Verification.** End to end via CDP").
 - **A colon as a mid-sentence connector is also out** (unslop rule 14). A colon before a list is fine.
@@ -180,7 +208,7 @@ Every playbook ends with a reply written this way, PR link as `https://github.co
 
 Formatting is mandatory and mechanical. Never hand-fix spacing, indentation, quotes, or line wrapping, and never leave it for review.
 
-1. **Find the formatter.** Read `docs/agents/formatter.md`, or the path the project's `## Xstack` block points to. If it is missing, detect read-only per setup-xstack's `references/formatter.md` steps 1 and 2 and use what the project already has. Tell the user once that `/setup-xstack` would record it.
+1. **Find the formatter.** Read `docs/agents/formatter.md`, or the path the project's `## Xstack` block points to. If it is missing, detect read-only per steps 1 and 2 of [`../setup-xstack/references/formatter.md`](../setup-xstack/references/formatter.md) and use what the project already has. Tell the user once that `/setup-xstack` would record it.
 2. **Format before every commit.** Run the recorded format command once per formatter on exactly the files the commit adds or modifies (`git diff --cached --name-only --diff-filter=d`, or the unstaged equivalent), then stage the result. Skip this step when the recorded commit hook already formats staged files. Every code delegate's brief names the format command and the files in its scope, and the delegate runs it before it reports.
 3. **Check once before review.** Before you review a delegate's work, open a PR, or push, run the check command once over every file the branch changed (`git diff --name-only --diff-filter=d <base>...HEAD`). A failing check is not done. Format and re-check. Review the diff only after the check passes, so formatting noise never hides a real change. Do not re-run the check on files the format step just wrote in the same pass.
 4. **Formatter output wins.** If formatting changes code behavior (a rare formatter bug) or fights the project's style, stop and report it. Do not hand-edit around it.
@@ -190,7 +218,7 @@ Format only changed files. Never reformat untouched files in the same commit.
 
 **Keep it fast.** Formatting is a sub-second step and must stay one.
 
-- **One call per formatter.** Pass all files in one invocation, through `xargs` when the list is long. One file per call costs about twelve times as much (measured with Prettier 3.3.3, 20 files: about 300 ms batched versus about 3.7 s one per call).
+- **One call per formatter.** Pass all files in one invocation. When the list is long, pipe it to `worker split -- <format command>`, which spreads size-balanced groups across the cores. One file per call costs about twelve times as much (measured with Prettier 3.3.3, 20 files: about 300 ms batched versus about 3.7 s one per call).
 - **The pinned binary, never a fetch.** Run the binary path recorded in the formatter file. In a worktree without installed dependencies, run the root checkout's binary by absolute path on the worktree's files. Never run a bare `npx` or `bunx` there, because it resolves a different version (measured: a pinned 3.3.3 project fell back to a cached 3.9.10) and the two disagree on output. Never install dependencies in a worktree only to format.
 - **Several languages run together.** Start each formatter on its own files at the same time, and wait for all of them.
 - **Outside the estimate.** Formatting does not count toward the tier estimate or the hardware cap in **Estimate, then swarm automatically**.
@@ -199,14 +227,29 @@ Format only changed files. Never reformat untouched files in the same commit.
 
 Tests and verification are where wall-clock time goes, and they are bound by the machine, not by the model. Make them fast without running fewer of the checks that prove the work.
 
-1. **Affected tests first, full suite once.** While iterating, run only the tests for the files you changed, through the runner's own selection (`bun test <files>`, `vitest related`, `jest --findRelatedTests`, `pytest <paths>`, `go test ./<pkg>/...`, `cargo test -p <crate>`). Run the full suite once per verifiable unit, before its commit, and once on the merged result before the PR. This skill's bundled tools use Rust. Run their suite with `cargo test --locked --manifest-path <poteto-mode>/scripts/Cargo.toml`; add a module name to select its tests.
+1. **Affected tests first, full suite once.** While iterating, run only the tests for the files you changed, through the runner's own selection (`bun test <files>`, `vitest related`, `jest --findRelatedTests`, `pytest <paths>`, `go test ./<pkg>/...`, `cargo test -p <crate>`). The full suite runs on every commit in the background, per **Background verification**, and the merged result passes `worker gate` before the PR. This skill's bundled tools use Rust. Run their suite with `cargo test --locked --manifest-path <poteto-mode>/scripts/Cargo.toml`; add a module name to select its tests.
 2. **Profile the suite once per session.** On the first full run, record wall time, CPU percent, and peak memory (`/usr/bin/time -v` on Linux, `/usr/bin/time -l` on macOS, or the shell's `time` with a format that shows CPU and max RSS). CPU percent divided by 100 is the cores one run uses. Keep the profile for the rest of the session. Re-profile only when the suite changes shape.
 3. **Test slots from the profile.** The number of full suites that may run at once is `max(1, min(floor(cores / cores per run), floor(available GB / (peak GB × 1.5))))`. A suite that uses one core on a four-core machine gets four slots (measured: four parallel runs took 3.4 s total against 11.3 s in sequence). A suite that saturates every core gets one slot, because two at once only slow each other.
-4. **Share the slots across agents.** Every local agent draws from the same slots. When agents want more full runs than there are slots, the extra runs wait on a lock instead of contending (`flock /tmp/<repo>-tests.lock <command>` on Linux, a `mkdir` lock elsewhere). Affected-test runs that use under one core skip the lock.
+4. **Share the slots across agents.** Every local agent and the background worker draw from the same per-core slot locks. Run a foreground full suite as `worker run --check "<command>"`, which takes a free slot from the top, while the background worker takes slots from the bottom at low priority and always leaves the top one free. Extra runs wait for a slot instead of contending. Affected-test runs that use under one core skip the slots.
 5. **Do not oversubscribe the runner.** A runner that parallelizes on its own (`--maxWorkers`, `pytest -n`, `go test -p`) gets `floor(cores / agents running tests now)` workers when other agents are testing at the same time.
 6. **Heavy suites run once, at the root.** End-to-end, integration, and visual suites run on the merged result by the root, not in every slice. Slices run their affected tests and the unit suite.
 7. **Keep caches warm.** Reuse build, compiler, and test caches. Never clean-build to verify unless a stale cache is the suspected cause.
 8. **One rerun for a failure.** A test that fails and then passes on one rerun is flaky. Report it with both outputs, and do not loop reruns until green. A failure that repeats is real.
+
+## Background verification
+
+Commit fast, verify behind, gate before anything leaves the machine. The developer never waits between tasks, and nothing unverified ships. The tool is the Rust binary `worker` in the plugin's [`worker/`](../../worker/) folder, built once per machine with `cargo build --release --manifest-path <xstack root>/worker/Cargo.toml` and run as `<xstack root>/worker/target/release/worker`. It has no runtime dependency and starts in about a millisecond. If cargo is missing, use the foreground fallback below. It checks the machine's power first (`worker probe` prints idle cores, free memory, and the burst width), then bursts. Every check of a commit is its own job file under `.git/xstack-worker/jobs/`, moving from `queued/` to `running/` to `done/`, and the file name is its place in the order. The check that failed last time runs first, then the slowest, so a red result shows early. State never touches the working tree.
+
+1. **Once per repo session.** `worker init --check "<full suite>" [--check "<other heavy check>"] [--copy <untracked file the checks need, such as .env>]`. Write the suite with the runner's shard flag (`vitest run --shard={shard}/{shards}`, `jest --shard={shard}/{shards}`, `pytest --splits {shards} --group {shard}`) when it has one, so every shard becomes its own job. Leave `--parallel` unset. The width then follows the probe, every idle core but one kept for the engineer, capped by free memory (`--job-mem-mb`, default 768), and it is read again every tick. Set `--parallel <n>` only to pin a fixed width. `--commits <n>` (default 2) verifies that many commits at once in their own worktrees, so one commit's tail never leaves cores idle. Init verifies the current commit as the baseline. A check that is already red there is marked preexisting, so it is never blamed on the new work, and the gate reports it.
+2. **Foreground, before each commit, in seconds.** The TDD red then green for the task, then `worker fast --check "<affected tests>" --check "<formatter check>" --check "<type check of changed files>"`. They run at once, and the first failure stops the rest, so its error shows without waiting for the slowest. On `FAST OK`, commit and start the next task.
+3. **Background, after each commit.** `worker enqueue` queues the commit and starts a detached worker. The worker runs every check on that exact SHA in its own worktree, at low priority, each check on its own thread. The first real failure stops that commit's other jobs, so the red result lands without waiting for the slowest. A check already red at the baseline never stops the others. Waiting commits coalesce into the newest one, but a running check is never cancelled, so a steady stream of commits cannot starve the suite. In Claude Code, also run `worker wait <sha>` with `run_in_background: true`, so the harness reports the result the moment it lands. Gates an agent runs (`interrogate`, verification on the real surface) go to background subagents on the same SHA.
+4. **Every task boundary reads the result.** Before starting the next task, run `worker status <base>`.
+   - A `fail` stops the line. The next task is the fix: reproduce it from the recorded output, write the red test, and fix forward in a new commit. Never build further on a red commit.
+   - A pending result does not block, unless `enqueue` printed an unverified depth above 3. Then wait for the oldest pending result first, so a failure never has more than three commits stacked on it.
+   - A `FLAKY` check (failed once, passed on rerun) is reported with both outputs, per item 8 of **Tests and verification**.
+5. **The gates that wait.** Pushing, opening a PR, Shipping, and telling the user the work is done each run `worker gate <base>`, with `--each` when every commit becomes its own PR. `GATE BLOCKED` means wait (`worker wait`) or fix. Until the gate prints `GATE OK`, every reply calls the work "committed, verification running", never done.
+
+Where the worker cannot run (no git, no cargo to build it, or a harness without background processes), fall back to the foreground: the full suite before each commit.
 
 ## Comments
 

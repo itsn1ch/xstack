@@ -1,0 +1,4 @@
+/tmp/xstack-verification-evidence/action.txt
+/tmp/xstack-verification-evidence/results.jsonl
+/tmp/xstack-verification-evidence/doctor.jsonl
+/tmp/xstack-verification-evidence/side-effects.jsonl

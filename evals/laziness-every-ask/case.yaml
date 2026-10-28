@@ -1,0 +1,53 @@
+schema_version: "1.0"
+name: laziness-every-ask
+description: A request with three asks gets all three, with the interaction between them tested.
+tags: [laziness]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill]
+  prompt: |
+    /xstack:principle-laziness-protocol In cli.py: add a --quiet flag that sets the log level to "error", make --quiet and --verbose impossible to pass together, and give --quiet a help text. Keep it minimal and tell me what you changed.
+graders:
+  - type: regex
+    name: quiet-level
+    target: {source: file, path: cli.py}
+    pattern: '"error"'
+  - type: regex
+    name: flags-exclusive
+    target: {source: file, path: cli.py}
+    pattern: "mutually_exclusive|parser\\.error|raise SystemExit"
+  - type: regex
+    name: quiet-has-help
+    target: {source: file, path: cli.py}
+    pattern: '--quiet"[^)]*help='
+  - type: regex
+    name: both-flags-together-tested
+    target: {source: file, path: tests/test_cli.py}
+    pattern: "\\[[^\\]]*[\"']--quiet[\"'][^\\]]*[\"']--verbose[\"']|\\[[^\\]]*[\"']--verbose[\"'][^\\]]*[\"']--quiet[\"']"
+  - type: regex
+    name: rejection-asserted
+    target: {source: file, path: tests/test_cli.py}
+    pattern: "SystemExit"
+  - type: regex
+    name: quiet-alone-tested
+    target: {source: file, path: tests/test_cli.py}
+    pattern: "[\"']error[\"']"
+  - type: tool_used
+    name: tests-run-through-worker
+    tool: Bash
+    input_match: "fast --check .*(unittest|pytest)"
+    min: 1
+  - type: regex
+    name: pairs-prove-it-works
+    target: last_message
+    pattern: "prove it works"
+    flags: i
+  - type: regex
+    name: names-a-partner-principle
+    target: last_message
+    pattern: "fix root causes|test behavior|subtract before you add|minimize reader load|redesign from first principles|model the domain|sequence work|verifiable units|experience first"
+    flags: i

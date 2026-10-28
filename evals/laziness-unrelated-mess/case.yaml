@@ -1,0 +1,44 @@
+schema_version: "1.0"
+name: laziness-unrelated-mess
+description: The fix leaves unrelated messy code alone and still tests the empty and single-item cases.
+tags: [laziness]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill]
+  prompt: |
+    /xstack:principle-laziness-protocol total() in invoice.py crashes on an invoice with no items. An empty invoice should total 0. Fix it and tell me what you changed.
+graders:
+  - type: regex
+    name: unrelated-code-untouched
+    target: {source: file, path: invoice.py}
+    pattern: 's = s \+ str\(x // 100\) \+ "\." \+ str\(x % 100\)\.zfill\(2\)'
+  - type: regex
+    name: empty-invoice-tested
+    target: {source: file, path: tests/test_invoice.py}
+    pattern: 'total\(\s*\[\s*\]\s*\)'
+  - type: regex
+    name: single-item-tested
+    target: {source: file, path: tests/test_invoice.py}
+    pattern: "total\\(\\s*\\[\\s*\\{[^\\[\\]{}]*\\}\\s*\\]\\s*\\)"
+  - type: tool_used
+    name: tests-run-through-worker
+    tool: Bash
+    input_match: "fast --check .*(unittest|pytest)"
+    min: 1
+  - type: llm
+    name: report-names-left-alone
+    criteria: The final reply names legacy_format (or the other messy code) as left unchanged and gives a reason, and cites the test run as proof.
+  - type: regex
+    name: pairs-prove-it-works
+    target: last_message
+    pattern: "prove it works"
+    flags: i
+  - type: regex
+    name: names-a-partner-principle
+    target: last_message
+    pattern: "fix root causes|test behavior|subtract before you add|minimize reader load|redesign from first principles|model the domain|sequence work|verifiable units|experience first"
+    flags: i

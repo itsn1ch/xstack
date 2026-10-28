@@ -165,7 +165,7 @@ Each blocker needs evidence: the failed read, the denied access, the missing fil
 
 ### E. Verify, always through the swarm skill
 
-Every check at every level runs through the **swarm** skill. The root never runs the checks itself. One check per worker. Each check targets one boundary or one fact.
+Every check at every level runs through the **swarm** skill. The root never runs the checks itself. One check per worker. Each check targets one boundary or one fact. Inside a swarm worker, a check that runs tests goes through `worker fast --check` or `worker run --check`, and a check that repeats one command, request, or file read over many inputs goes through one `subtask` call, per **Tests and verification** and **Subtasks** in poteto-mode.
 
 Pick each check's level from this ladder. Use the cheapest level that can settle the fact.
 
@@ -221,7 +221,7 @@ Run targeted history only when it can tell you one of these:
 - Whether the behavior changed on purpose.
 - Whether a caller or a dependency changed.
 
-Use `git blame -L`, `git log -L`, `git log -S '<exact text>'`, and `git show <sha>` on the boundary's lines only. A line's last edit is not when the bug entered. Report uncertainty in the history as it is. Run the **why** skill, narrowed to the relevant commits, only when the intent behind a change matters to the diagnosis.
+Use `git blame -L`, `git log -L`, `git log -S '<exact text>'`, and `git show <sha>` on the boundary's lines only. When that is more than a few commands, run them as one `subtask --keep-going` call with one JSONL `argv` task per command, per **Subtasks** in poteto-mode. A line's last edit is not when the bug entered. Report uncertainty in the history as it is. Run the **why** skill, narrowed to the relevant commits, only when the intent behind a change matters to the diagnosis.
 
 ### G. Stop and report
 

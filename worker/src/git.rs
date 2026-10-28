@@ -11,13 +11,20 @@ pub fn git(repo: &Path, args: &[&str]) -> Result<String> {
         .output()
         .map_err(|e| format!("cannot run git: {e}"))?;
     if !out.status.success() {
-        return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 pub fn lines(text: &str) -> Vec<String> {
-    text.lines().filter(|l| !l.is_empty()).map(str::to_string).collect()
+    text.lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn is_ancestor(repo: &Path, older: &str, newer: &str) -> bool {

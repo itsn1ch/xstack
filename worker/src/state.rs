@@ -41,7 +41,9 @@ fn default_job_mem_mb() -> u64 {
 impl Config {
     /// Uses the fixed shard count, or the available core count minus `RESERVE`, with a minimum of one.
     pub fn shards(&self) -> usize {
-        self.parallel.unwrap_or_else(|| cores().saturating_sub(RESERVE)).max(1)
+        self.parallel
+            .unwrap_or_else(|| cores().saturating_sub(RESERVE))
+            .max(1)
     }
 }
 
@@ -153,7 +155,11 @@ pub fn config_key(config: &Config) -> String {
 
 impl State {
     fn valid(&self, entry: &Entry) -> bool {
-        entry.status.is_final() && self.config.as_ref().is_some_and(|c| config_key(c) == entry.config_key)
+        entry.status.is_final()
+            && self
+                .config
+                .as_ref()
+                .is_some_and(|c| config_key(c) == entry.config_key)
     }
 
     /// Returns the commit's result or a result for an identical tree, such as after a content-preserving amend or rebase.
@@ -161,7 +167,9 @@ impl State {
         if let Some(entry) = self.entries.get(sha).filter(|e| self.valid(e)) {
             return Some(entry);
         }
-        self.entries.values().find(|e| e.tree == tree && self.valid(e))
+        self.entries
+            .values()
+            .find(|e| e.tree == tree && self.valid(e))
     }
 
     /// Without `own`, a commit skipped in the queue is covered by the descendant that superseded it.
@@ -176,7 +184,10 @@ impl State {
             if current.status != Status::Skipped || !seen.insert(current.sha.clone()) {
                 break;
             }
-            entry = current.superseded_by.as_ref().and_then(|s| self.entries.get(s));
+            entry = current
+                .superseded_by
+                .as_ref()
+                .and_then(|s| self.entries.get(s));
             if let Some(next) = entry.filter(|e| self.valid(e)) {
                 return Some(next);
             }
@@ -186,14 +197,20 @@ impl State {
 }
 
 pub fn home(repo: &Path) -> Result<PathBuf> {
-    let common = git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let common = git(
+        repo,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
     let dir = PathBuf::from(common).join("xstack-worker");
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     Ok(dir)
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub fn alive(pid: i32) -> bool {
@@ -207,7 +224,9 @@ pub fn alive(pid: i32) -> bool {
 
 fn load(file: &Path) -> Result<State> {
     match fs::read(file) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!("corrupt {}: {e}", file.display())),
+        Ok(bytes) => {
+            serde_json::from_slice(&bytes).map_err(|e| format!("corrupt {}: {e}", file.display()))
+        }
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(State::default()),
         Err(e) => Err(format!("cannot read {}: {e}", file.display())),
     }
@@ -242,7 +261,11 @@ pub fn with_state<T>(repo: &Path, change: impl FnOnce(&mut State) -> Result<T>) 
                     let _ = fs::remove_dir_all(&lock);
                 }
                 if started.elapsed() > LOCK_WAIT {
-                    return Err(format!("state lock stayed busy for {}s: {}", LOCK_WAIT.as_secs(), lock.display()));
+                    return Err(format!(
+                        "state lock stayed busy for {}s: {}",
+                        LOCK_WAIT.as_secs(),
+                        lock.display()
+                    ));
                 }
                 sleep(Duration::from_millis(20));
             }

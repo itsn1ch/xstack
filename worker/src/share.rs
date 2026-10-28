@@ -1,5 +1,6 @@
 //! Registers every run that wants cores, so the verification worker and each `subtask` run split the machine evenly.
 //! Each run holds an exclusive flock on its own file. A file nobody holds belongs to a dead run.
+//! Where the temp dir is read-only (some sandboxes), a run goes unregistered and counts as alone instead of failing.
 use crate::Result;
 use std::fs::{self, File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -38,8 +39,8 @@ impl Runs {
 
 pub struct Share {
     kind: Kind,
-    path: PathBuf,
-    _lock: File,
+    /// The registered file and the lock that marks this run alive; `None` when the registry could not be written.
+    entry: Option<(PathBuf, File)>,
 }
 
 fn dir() -> PathBuf {
@@ -53,32 +54,17 @@ fn try_lock(file: &File) -> bool {
 }
 
 impl Share {
-    /// Locks the file under a hidden name first, so a scan never mistakes a starting run for a dead one.
-    pub fn join(kind: Kind) -> Result<Share> {
-        let dir = dir();
-        fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        let name = format!("{}-{}-{nanos}", kind.prefix(), std::process::id());
-        let staging = dir.join(format!(".{name}"));
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&staging)
-            .map_err(|e| format!("cannot create {}: {e}", staging.display()))?;
-        if !try_lock(&lock) {
-            return Err(format!("cannot lock {}", staging.display()));
-        }
-        let path = dir.join(name);
-        fs::rename(&staging, &path)
-            .map_err(|e| format!("cannot register {}: {e}", path.display()))?;
-        Ok(Share {
+    /// Registers this run, or runs unregistered when the registry cannot be written. Never fails.
+    pub fn join(kind: Kind) -> Share {
+        Share {
             kind,
-            path,
-            _lock: lock,
-        })
+            entry: register(kind).ok(),
+        }
+    }
+
+    /// Whether other runs can see this one. An unregistered run still sees the registered ones.
+    pub fn registered(&self) -> bool {
+        self.entry.is_some()
     }
 
     /// Counts live runs and removes the files of dead ones.
@@ -87,7 +73,9 @@ impl Share {
             return Runs::ALONE;
         };
         let mine = format!("{}-", self.kind.prefix());
-        let (mut all, mut same_kind) = (0, 0);
+        // An unregistered run has no file, so it counts itself.
+        let me = usize::from(!self.registered());
+        let (mut all, mut same_kind) = (me, me);
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
@@ -112,8 +100,37 @@ impl Share {
     }
 }
 
+/// Locks the file under a hidden name first, so a scan never mistakes a starting run for a dead one.
+fn register(kind: Kind) -> Result<(PathBuf, File)> {
+    let dir = dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let name = format!("{}-{}-{nanos}", kind.prefix(), std::process::id());
+    let staging = dir.join(format!(".{name}"));
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&staging)
+        .map_err(|e| format!("cannot create {}: {e}", staging.display()))?;
+    if !try_lock(&lock) {
+        let _ = fs::remove_file(&staging);
+        return Err(format!("cannot lock {}", staging.display()));
+    }
+    let path = dir.join(name);
+    if let Err(e) = fs::rename(&staging, &path) {
+        let _ = fs::remove_file(&staging);
+        return Err(format!("cannot register {}: {e}", path.display()));
+    }
+    Ok((path, lock))
+}
+
 impl Drop for Share {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        if let Some((path, _)) = &self.entry {
+            let _ = fs::remove_file(path);
+        }
     }
 }

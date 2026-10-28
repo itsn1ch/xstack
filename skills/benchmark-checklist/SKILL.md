@@ -14,6 +14,7 @@ For a quick ballpark the user asked for, one run is enough. Still check question
 
 - Write down the claim you expect to make, in the words you would ship ("export is 30% faster at p50 on the 60k-row dataset"). The questions test that sentence.
 - Read the measurement script. Note what it times, counts, and ignores.
+- Keep xstack's own runners out of the timed region. `worker status` shows a background verification, and `subtask probe` shows live `subtask` runs. Both share the cores you are measuring and resize their pools every 250 ms, so wait for them to finish before a reported run. Never time a benchmark through `subtask` or `worker split`. Use them only for the untimed parts: building fixtures, and checking outputs in question 4 (`subtask --hash --keep-going < outputs`, compared with the expected hashes).
 - Check the load average with `uptime` and the core count with `nproc`. If the machine is busy, find out what is running. If you cannot stop it, interleave the sides so both see the same noise, and say so in the report.
 
 ## The questions

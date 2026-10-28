@@ -1,7 +1,8 @@
 //! Runs many small subtasks for one agent without any model call: shell commands, HTTP requests, and file reads.
 //! Each kind has its own pool, so slow requests never hold back commands. A pool's width comes from the machine,
 //! is split evenly across every `worker sub` running at once, and is read again every `RETUNE`.
-//! Results stream to a JSONL file, so a run of hundreds of thousands of tasks keeps memory flat.
+//! Tasks stream in through bounded queues and results stream out to a JSONL file, so memory stays flat
+//! however many tasks a run reads.
 use crate::Result;
 use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,11 @@ const FD_HEADROOM: u64 = 256;
 const FILE_PER_CORE: usize = 16;
 const FILE_MAX: usize = 512;
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
+/// Tasks read ahead of each pool. The reader waits when a pool's queue is full.
+const QUEUE_DEPTH: usize = 1024;
+
+/// One input line: a task, or why the line is not one.
+pub type Input = std::result::Result<Task, String>;
 
 /// One subtask. In JSONL each line is an object with one key, such as `{"sh": "cmd"}` or `{"hash": "path"}`.
 #[derive(Clone, Debug, Deserialize)]
@@ -258,7 +264,7 @@ struct Ctx {
     per_host: usize,
     client: reqwest::Client,
     hosts: Mutex<HashMap<String, Arc<Semaphore>>>,
-    patterns: HashMap<String, std::result::Result<Regex, String>>,
+    patterns: Mutex<HashMap<String, Arc<std::result::Result<Regex, String>>>>,
     cancel: watch::Receiver<bool>,
 }
 
@@ -278,6 +284,16 @@ impl Ctx {
                 .or_insert_with(|| Arc::new(Semaphore::new(self.per_host))),
         )
     }
+
+    /// Compiles each pattern once, on first use.
+    fn pattern(&self, pattern: &str) -> Arc<std::result::Result<Regex, String>> {
+        let mut patterns = self.patterns.lock().expect("patterns");
+        Arc::clone(
+            patterns
+                .entry(pattern.to_string())
+                .or_insert_with(|| Arc::new(Regex::new(pattern).map_err(|e| e.to_string()))),
+        )
+    }
 }
 
 /// Quotes one item for `sh -c`.
@@ -286,26 +302,35 @@ pub fn quote(item: &str) -> String {
 }
 
 /// Builds one task per item when the template has `{}`, otherwise one per `BATCH_ITEMS` items appended to it.
-pub fn shell_tasks(template: &str, items: &[String]) -> Vec<Task> {
+/// Reads `items` lazily, so a template over millions of items never holds them all.
+pub fn shell_tasks<I>(template: &str, items: I) -> Box<dyn Iterator<Item = Task> + Send>
+where
+    I: IntoIterator<Item = String>,
+    I::IntoIter: Send + 'static,
+{
+    let template = template.to_string();
+    let mut items = items.into_iter();
     if template.contains("{}") {
-        return items
-            .iter()
-            .map(|item| Task::Sh(template.replace("{}", &quote(item))))
-            .collect();
+        return Box::new(items.map(move |item| Task::Sh(template.replace("{}", &quote(&item)))));
     }
-    items
-        .chunks(BATCH_ITEMS)
-        .map(|batch| {
-            let args: Vec<String> = batch.iter().map(|item| quote(item)).collect();
-            Task::Sh(format!("{template} {}", args.join(" ")))
-        })
-        .collect()
+    Box::new(std::iter::from_fn(move || {
+        let batch: Vec<String> = items
+            .by_ref()
+            .take(BATCH_ITEMS)
+            .map(|item| quote(&item))
+            .collect();
+        (!batch.is_empty()).then(|| Task::Sh(format!("{template} {}", batch.join(" "))))
+    }))
 }
 
-pub fn run(tasks: Vec<Task>, options: &SubOptions) -> Result<Summary> {
+pub fn run<I>(tasks: I, options: &SubOptions) -> Result<Summary>
+where
+    I: IntoIterator<Item = Input>,
+    I::IntoIter: Send + 'static,
+{
     let started = Instant::now();
     let nofile = raise_nofile();
-    let share = Share::join(Kind::Subtask)?;
+    let share = Share::join(Kind::Subtask);
     let (meter, power) = Meter::quick();
     let first = widths(&power, share.runs(), 0, options.sh_mem_mb, nofile).min(options.cap);
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -314,28 +339,20 @@ pub fn run(tasks: Vec<Task>, options: &SubOptions) -> Result<Summary> {
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start runtime: {e}"))?;
+    let tasks = tasks.into_iter();
     let mut summary = runtime.block_on(drive(tasks, options, share, meter, nofile, first))?;
     summary.ms = started.elapsed().as_millis() as u64;
     Ok(summary)
 }
 
 async fn drive(
-    tasks: Vec<Task>,
+    tasks: impl Iterator<Item = Input> + Send + 'static,
     options: &SubOptions,
     share: Share,
     mut meter: Meter,
     nofile: u64,
     first: Widths,
 ) -> Result<Summary> {
-    let total = tasks.len();
-    let mut patterns = HashMap::new();
-    for task in &tasks {
-        if let Task::Grep { pattern, .. } = task {
-            patterns
-                .entry(pattern.clone())
-                .or_insert_with(|| Regex::new(pattern).map_err(|e| e.to_string()));
-        }
-    }
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(options.timeout_ms))
         .pool_max_idle_per_host(options.per_host)
@@ -350,7 +367,7 @@ async fn drive(
         per_host: options.per_host.max(1),
         client,
         hosts: Mutex::new(HashMap::new()),
-        patterns,
+        patterns: Mutex::new(HashMap::new()),
         cancel,
     });
     let gates = [
@@ -404,23 +421,60 @@ async fn drive(
         Ok(tally)
     });
 
-    let mut queues: [Vec<(usize, Task)>; 3] = Default::default();
-    for (i, task) in tasks.into_iter().enumerate() {
-        let pool = match task.pool() {
-            Pool::Cpu => 0,
-            Pool::Net => 1,
-            Pool::File => 2,
-        };
-        queues[pool].push((i, task));
-    }
-    let dispatchers: Vec<_> = queues
-        .into_iter()
-        .zip(gates.iter().cloned())
-        .map(|(queue, gate)| {
-            tokio::spawn(dispatch(queue, gate, Arc::clone(&ctx), results_tx.clone()))
+    let mut queues = Vec::new();
+    let dispatchers: Vec<_> = gates
+        .iter()
+        .map(|gate| {
+            let (tx, rx) = mpsc::channel::<(usize, Task)>(QUEUE_DEPTH);
+            queues.push(tx);
+            tokio::spawn(dispatch(
+                rx,
+                Arc::clone(gate),
+                Arc::clone(&ctx),
+                results_tx.clone(),
+            ))
         })
         .collect();
+    // Reads the input on its own thread. After fail-fast it keeps counting without sending, so the
+    // summary still reports how many tasks never started.
+    let reader = {
+        let (cancel, results) = (ctx.cancel.clone(), results_tx.clone());
+        tokio::task::spawn_blocking(move || {
+            let mut read = 0;
+            for input in tasks {
+                let i = read;
+                read += 1;
+                if *cancel.borrow() {
+                    continue;
+                }
+                match input {
+                    Ok(task) => {
+                        let pool = match task.pool() {
+                            Pool::Cpu => 0,
+                            Pool::Net => 1,
+                            Pool::File => 2,
+                        };
+                        let _ = queues[pool].blocking_send((i, task));
+                    }
+                    Err(problem) => {
+                        let _ = results.blocking_send(Outcome {
+                            i,
+                            kind: "input",
+                            task: problem.clone(),
+                            ok: false,
+                            cancelled: false,
+                            code: -1,
+                            ms: 0,
+                            output: problem,
+                        });
+                    }
+                }
+            }
+            read
+        })
+    };
     drop(results_tx);
+    let total = reader.await.map_err(|e| e.to_string())?;
     for dispatcher in dispatchers {
         dispatcher.await.map_err(|e| e.to_string())?;
     }
@@ -452,12 +506,12 @@ struct Tally {
 }
 
 async fn dispatch(
-    queue: Vec<(usize, Task)>,
+    mut queue: mpsc::Receiver<(usize, Task)>,
     gate: Arc<Gate>,
     ctx: Arc<Ctx>,
     results: mpsc::Sender<Outcome>,
 ) {
-    for (i, task) in queue {
+    while let Some((i, task)) = queue.recv().await {
         if *ctx.cancel.borrow() {
             return;
         }
@@ -493,13 +547,12 @@ async fn execute(i: usize, task: Task, ctx: &Ctx) -> Outcome {
             None => (false, 127, "empty argv".into()),
         },
         Task::Http(request) => http(request, ctx).await,
-        Task::Grep { path, pattern } => match ctx.patterns.get(&pattern) {
-            Some(Ok(re)) => {
+        Task::Grep { path, pattern } => match &*ctx.pattern(&pattern) {
+            Ok(re) => {
                 let re = re.clone();
                 blocking(move || grep(Path::new(&path), &re)).await
             }
-            Some(Err(e)) => (false, -1, format!("bad pattern: {e}")),
-            None => (false, -1, "pattern was not compiled".into()),
+            Err(e) => (false, -1, format!("bad pattern: {e}")),
         },
         Task::Hash(path) => blocking(move || hash(Path::new(&path))).await,
         Task::Lines(path) => blocking(move || lines(Path::new(&path))).await,

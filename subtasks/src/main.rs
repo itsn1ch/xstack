@@ -108,10 +108,34 @@ fn main() -> ExitCode {
 }
 
 /// The xstack checkout this binary was built from.
+/// The xstack checkout this binary belongs to: the one it sits in (`<root>/subtasks/target/release`), else the one it was built from.
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    let sits_in = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.parent()?.parent()?.to_path_buf()))
+        .filter(|root| root.join("subtasks/Cargo.toml").is_file());
+    sits_in.unwrap_or_else(|| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    })
+}
+
+/// A fresh results file in the temp dir, else in the working directory, else stdout above the summary when both are read-only.
+fn default_out() -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let name = format!("xstack-subtask-{}-{nanos}.jsonl", std::process::id());
+    let temp = std::env::temp_dir().join(&name);
+    if std::fs::File::create(&temp).is_ok() {
+        return temp;
+    }
+    let here = PathBuf::from(format!(".{name}"));
+    if std::fs::File::create(&here).is_ok() {
+        return here;
+    }
+    PathBuf::from("/dev/stdout")
 }
 
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
@@ -163,7 +187,7 @@ fn hot() -> Result<u8> {
         return Ok(1);
     }
     let (_, power) = Meter::quick();
-    let runs = Share::join(Kind::Subtask)?.runs();
+    let runs = Share::join(Kind::Subtask).runs();
     let w = engine::widths(
         &power,
         runs,
@@ -188,7 +212,7 @@ fn hot() -> Result<u8> {
 fn probe(args: &Args) -> Result<u8> {
     let started = std::time::Instant::now();
     let (_, power) = Meter::quick();
-    let runs = Share::join(Kind::Subtask)?.runs();
+    let runs = Share::join(Kind::Subtask).runs();
     let w = engine::widths(
         &power,
         runs,
@@ -208,19 +232,24 @@ fn probe(args: &Args) -> Result<u8> {
     Ok(0)
 }
 
-fn read_lines(source: Option<&Path>) -> Result<Vec<String>> {
-    let lines: Vec<String> = match source {
-        Some(path) => std::fs::read_to_string(path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))?
-            .lines()
-            .map(String::from)
-            .collect(),
-        None => io::stdin().lock().lines().map_while(|l| l.ok()).collect(),
+/// Streams the non-empty lines of the task file, or of stdin, without holding them.
+fn read_lines(source: Option<&Path>) -> Result<Box<dyn Iterator<Item = String> + Send>> {
+    let reader: Box<dyn BufRead + Send> = match source {
+        Some(path) => Box::new(io::BufReader::new(
+            std::fs::File::open(path)
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?,
+        )),
+        None => Box::new(io::BufReader::new(io::stdin())),
     };
-    Ok(lines.into_iter().filter(|l| !l.trim().is_empty()).collect())
+    Ok(Box::new(
+        reader
+            .lines()
+            .map_while(|l| l.ok())
+            .filter(|l| !l.trim().is_empty()),
+    ))
 }
 
-fn sub_tasks(args: &Args) -> Result<Vec<Task>> {
+fn sub_tasks(args: &Args) -> Result<Box<dyn Iterator<Item = engine::Input> + Send>> {
     let templates = [
         args.sh.is_some(),
         args.http,
@@ -233,53 +262,43 @@ fn sub_tasks(args: &Args) -> Result<Vec<Task>> {
     }
     let items = read_lines(args.tasks.as_deref())?;
     if let Some(template) = &args.sh {
-        return Ok(engine::shell_tasks(template, &items));
+        return Ok(Box::new(engine::shell_tasks(template, items).map(Ok)));
     }
     let method = args.method.clone().unwrap_or_else(|| "GET".into());
-    let task = |(i, item): (usize, String)| -> Result<Task> {
-        Ok(if args.http {
+    let (http, grep, hash, lines) = (args.http, args.grep.clone(), args.hash, args.lines);
+    let save_dir = args.save_dir.clone();
+    let task = move |(i, item): (usize, String)| -> engine::Input {
+        Ok(if http {
             Task::Http(Http {
                 url: item,
                 method: method.clone(),
                 headers: Default::default(),
                 body: None,
-                save: args.save_dir.as_ref().map(|dir| dir.join(i.to_string())),
+                save: save_dir.as_ref().map(|dir| dir.join(i.to_string())),
             })
-        } else if let Some(pattern) = &args.grep {
+        } else if let Some(pattern) = &grep {
             Task::Grep {
                 path: item,
                 pattern: pattern.clone(),
             }
-        } else if args.hash {
+        } else if hash {
             Task::Hash(item)
-        } else if args.lines {
+        } else if lines {
             Task::Lines(item)
         } else {
             serde_json::from_str(&item).map_err(|e| format!("task {}: {e}: {item}", i + 1))?
         })
     };
-    items.into_iter().enumerate().map(task).collect()
+    Ok(Box::new(items.enumerate().map(task)))
 }
 
 fn run(args: Args) -> Result<u8> {
     let tasks = sub_tasks(&args)?;
-    if tasks.is_empty() {
-        println!("SUBTASK OK nothing to run");
-        return Ok(0);
-    }
     if let Some(dir) = &args.save_dir {
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
-    let out = args.out.clone().unwrap_or_else(|| {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!(
-            "xstack-subtask-{}-{nanos}.jsonl",
-            std::process::id()
-        ))
-    });
+    let out = args.out.clone().unwrap_or_else(default_out);
     let options = SubOptions {
         cwd: std::env::current_dir().map_err(|e| e.to_string())?,
         out: out.clone(),
@@ -296,6 +315,11 @@ fn run(args: Args) -> Result<u8> {
         show: args.show.unwrap_or(3),
     };
     let summary = engine::run(tasks, &options)?;
+    if summary.total == 0 {
+        let _ = std::fs::remove_file(&out);
+        println!("SUBTASK OK nothing to run");
+        return Ok(0);
+    }
     let w = summary.widths;
     let pools = format!(
         "peak cpu {}, net {}, file {}; {} run(s) sharing",

@@ -45,13 +45,13 @@ fn results(dir: &Path) -> Vec<serde_json::Value> {
 }
 
 fn run(tasks: Vec<Task>, options: &SubOptions) -> Summary {
-    sub::run(tasks, options).unwrap()
+    sub::run(tasks.into_iter().map(Ok), options).unwrap()
 }
 
 #[test]
 fn a_template_with_braces_runs_once_per_quoted_item() {
     let items = vec!["a b".to_string(), "it's".to_string()];
-    let tasks = sub::shell_tasks("printf '[%s]' {}", &items);
+    let tasks: Vec<Task> = sub::shell_tasks("printf '[%s]' {}", items).collect();
     assert_eq!(tasks.len(), 2);
     let dir = temp_dir("each");
     let summary = run(tasks, &options(&dir));
@@ -64,7 +64,7 @@ fn a_template_with_braces_runs_once_per_quoted_item() {
 #[test]
 fn a_template_without_braces_batches_items_per_process() {
     let items: Vec<String> = (0..100).map(|i| format!("item {i}")).collect();
-    let tasks = sub::shell_tasks("printf '%s\\n'", &items);
+    let tasks: Vec<Task> = sub::shell_tasks("printf '%s\\n'", items).collect();
     assert_eq!(tasks.len(), 100usize.div_ceil(sub::BATCH_ITEMS));
     let dir = temp_dir("batch");
     run(tasks, &options(&dir));
@@ -311,8 +311,8 @@ fn a_live_verification_worker_takes_its_share_of_the_cores_only() {
 
 #[test]
 fn every_live_run_is_counted_by_kind_and_dead_ones_are_cleared() {
-    let subtask = Share::join(Kind::Subtask).unwrap();
-    let _verification = Share::join(Kind::Verification).unwrap();
+    let subtask = Share::join(Kind::Subtask);
+    let _verification = Share::join(Kind::Verification);
     let runs = subtask.runs();
     assert!(
         runs.all > runs.same_kind,
@@ -323,4 +323,106 @@ fn every_live_run_is_counted_by_kind_and_dead_ones_are_cleared() {
     fs::write(&dead, "").unwrap();
     subtask.runs();
     assert!(!dead.exists(), "an unlocked file belongs to a dead run");
+}
+
+#[test]
+fn a_bad_input_line_fails_alone_and_the_rest_still_run() {
+    let dir = temp_dir("input");
+    let inputs = vec![
+        Ok(Task::Sh("echo one".into())),
+        Err("task 2: expected value: {nope".to_string()),
+        Ok(Task::Sh("echo three".into())),
+    ];
+    let summary = sub::run(inputs, &options(&dir)).unwrap();
+    assert_eq!((summary.total, summary.failed), (3, 1));
+    assert_eq!(summary.failures[0].kind, "input");
+    let rows = results(&dir);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[2]["output"], "three\n");
+}
+
+#[test]
+fn fail_fast_still_counts_every_unread_task_as_skipped() {
+    let dir = temp_dir("count");
+    let inputs = std::iter::once(Ok(Task::Sh("exit 1".into())))
+        .chain((0..50_000).map(|_| Ok(Task::Sh("sleep 5".into()))));
+    let summary = sub::run(
+        inputs,
+        &SubOptions {
+            fail_fast: true,
+            ..options(&dir)
+        },
+    )
+    .unwrap();
+    assert_eq!(summary.total, 50_001);
+    assert_eq!(summary.failed + summary.cancelled + summary.skipped, 50_001);
+}
+
+#[test]
+fn a_read_only_temp_dir_runs_alone_and_writes_results_to_the_working_directory() {
+    let dir = temp_dir("readonly");
+    let locked = dir.join("tmp");
+    fs::create_dir(&locked).unwrap();
+    let mut permissions = fs::metadata(&locked).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o500);
+    fs::set_permissions(&locked, permissions).unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .args(["--sh", "echo {}"])
+        .env("TMPDIR", &locked)
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"a\nb\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    assert!(stdout.contains("SUBTASK OK 2 task(s)"), "{stdout}");
+    assert!(stdout.contains("1 run(s) sharing"), "{stdout}");
+    let written: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".xstack-subtask-")
+        })
+        .collect();
+    assert_eq!(written.len(), 1, "{stdout}");
+    assert_eq!(
+        fs::read_to_string(written[0].path())
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn a_run_with_no_writable_directory_prints_its_results_above_the_summary() {
+    let dir = temp_dir("nowhere");
+    let mut permissions = fs::metadata(&dir).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o500);
+    fs::set_permissions(&dir, permissions).unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_subtask"))
+        .args(["--sh", "test {} = a"])
+        .env("TMPDIR", &dir)
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"a\nb\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(1), "{stdout}");
+    assert!(stdout.contains("SUBTASK FAIL 1 failed"), "{stdout}");
+    assert!(stdout.contains("results /dev/stdout"), "{stdout}");
+    assert_eq!(
+        stdout.lines().filter(|l| l.starts_with("{\"i\":")).count(),
+        2,
+        "{stdout}"
+    );
 }

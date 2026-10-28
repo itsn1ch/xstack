@@ -1,0 +1,61 @@
+schema_version: "1.0"
+name: laziness-repeated-value
+description: A value repeated in several files leaves no stale copy after the change.
+tags: [laziness]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill]
+  prompt: |
+    /xstack:principle-laziness-protocol Requests from the client package time out too early. Raise the request timeout from 10 to 30 seconds (client/http.py has it). Tell me what you changed.
+graders:
+  - type: regex
+    name: http-raised
+    target: {source: file, path: client/http.py}
+    pattern: '\b10\b'
+    match: not_contains
+  - type: regex
+    name: upload-raised
+    target: {source: file, path: client/upload.py}
+    pattern: '\b10\b'
+    match: not_contains
+  - type: regex
+    name: health-raised
+    target: {source: file, path: client/health.py}
+    pattern: '\b10\b'
+    match: not_contains
+  - type: regex
+    name: thirty-asserted
+    target: {source: file, path: tests/test_client.py}
+    pattern: "\\b30\\b"
+  - type: regex
+    name: put-tested
+    target: {source: file, path: tests/test_client.py}
+    pattern: "\\bput\\("
+  - type: regex
+    name: ping-tested
+    target: {source: file, path: tests/test_client.py}
+    pattern: "\\bping\\("
+  - type: tool_used
+    name: tests-run-through-worker
+    tool: Bash
+    input_match: "fast --check .*(unittest|pytest)"
+    min: 1
+  - type: tool_used
+    name: swept-with-subtask
+    tool: Bash
+    input_match: "subtask .*--grep|--grep .*subtask|--grep .*--keep-going|--keep-going .*--grep"
+    min: 1
+  - type: regex
+    name: pairs-prove-it-works
+    target: last_message
+    pattern: "prove it works"
+    flags: i
+  - type: regex
+    name: names-a-partner-principle
+    target: last_message
+    pattern: "fix root causes|test behavior|subtract before you add|minimize reader load|redesign from first principles|model the domain|sequence work|verifiable units|experience first"
+    flags: i

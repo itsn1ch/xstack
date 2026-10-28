@@ -318,7 +318,7 @@ pub fn drain(repo: &Path) -> Result<()> {
         order: (0..config.shards()).collect(),
     };
     let (mut meter, mut power) = Meter::start();
-    let share = Share::join(Kind::Verification)?;
+    let share = Share::join(Kind::Verification);
     let (tx, rx) = mpsc::channel::<(String, Job)>();
     let mut active: HashMap<String, Active> = HashMap::new();
     let mut running = 0usize;

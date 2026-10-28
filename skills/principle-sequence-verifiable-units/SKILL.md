@@ -10,7 +10,7 @@ Order work as a sequence of small units, each ending in a state you can check, a
 
 **Why:** A break caught at the unit that caused it is cheap to localize. A break caught after a batch is buried, and you have already built further on a broken base. Sequencing those same units into a delivery a reviewer can replay turns "trust me" into "watch it go red, then green."
 
-**Execution.** In a sweep, migration, or any run of similar edits, verify each change before starting the next. Each unit is a before/after bracket: known-good state, one change, run the check, then proceed. Rebase onto clean trunk first so every check measures against the real baseline. When a lever does the edits, the per-unit check is nearly free. Run it anyway.
+**Execution.** In a sweep, migration, or any run of similar edits, verify each change before starting the next. Each unit is a before/after bracket: known-good state, one change, run the check as `worker fast --check "<check>"`, then proceed. When one unit's check is the same command over many files or inputs, it is one `subtask --keep-going` call, not a loop. Rebase onto clean trunk first so every check measures against the real baseline. When a lever does the edits, the per-unit check is nearly free. Run it anyway.
 
 **With background verification.** Under poteto-mode's **Background verification**, "green" before advancing means the unit's fast check: its own red then green test, its affected tests, and the formatter. The heavy checks run on the unit's commit behind you. The guarantee still holds, because each result stays attached to its commit, a red result stops the line at the next boundary, and no more than three unverified commits may stack on any unit.
 

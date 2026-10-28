@@ -22,6 +22,7 @@ Remaining triggers:
 - Any code or structural change → apply **Junior Developer Readability** below. Folder purpose, file ownership, names, function intent, and execution flow must be traceable from the code. Check this by reading the affected path, not by adding browser or UI tests.
 - Any behavior change (feature, bug fix, perf fix), yours or a delegate's → the **tdd** skill. Red before green: an executable check fails for the intended reason before production code changes, then passes. Mandatory, with no skip-with-reason escape and no Laziness Protocol override. A behavior-preserving refactor pins behavior first instead (Refactoring step 1). Work with no behavior change (docs, config, copy) records `tdd: n/a, <reason>`.
 - Code crossing a function boundary → design before implementing, sized by tier per **Scale the ceremony to the tier**. The full route is the **to-tickets** skill, parallel design exploration.
+- Any test, type check, lint, or build run, yours, a delegate's, or one any skill or playbook tells you to run → through `worker`: `worker fast --check "<command>"` for the foreground gate and affected tests, `worker run --check "<command>"` for a full suite, per **Tests and verification**. Any step, in any skill or playbook, that runs the same mechanical command, request, or file read over many items → one `subtask` call, per **Subtasks**. A skill whose text predates this rule and says "run", "grep", or "for each" still follows it. Mandatory. Judgment stays with agents, and benchmarks stay out of both, per **benchmark-checklist**.
 - Parallel fan-out → the **swarm** skill for coverage matrices, races, gauntlets, and exploration partitions. Use **arena** for design or code bakeoffs with base selection and grafting.
 - Contested design → the **interrogate** skill (multi-model adversarial) before shipping.
 - Nontrivial multi-step → write the throughput checkpoint (Feature step 3) with its time estimate and agent count (Subagents, **Estimate, then swarm automatically**).
@@ -31,6 +32,7 @@ Remaining triggers:
 - Before commit → the `deslop` skill from the `cursor-team-kit` plugin (`/deslop`). Without it, see **Harness**.
 - Before every commit, yours or a delegate's → run the project formatter on every changed file, per **Formatting**. Mandatory, with no skip-with-reason escape and no Laziness Protocol override.
 - Before review → the **no-comments** skill (`/no-comments`).
+- Before every commit and every PR, yours or a delegate's → the **judgment** skill (`/judgment`), after the code-editing gates. It judges the feature against the ask, the writing, and the spacing, through one `worker fast` call and `subtask` sweeps. A `NAG` or `FAIL` blocks the commit until it is fixed and judged again. Mandatory, with no Laziness Protocol override.
 - Shipping UI / IDE / CLI → the matching control skill. `cursor-team-kit` publishes `control-cli` (CLIs and TUIs) and `control-ui` (browser / Electron / web UIs). Without them, see **Harness**. For bug fixes, reproduce first on the same surface yourself. Hand to the user only under the narrow Bug fix step 1 exception.
 - Running a benchmark, measuring perf yourself, or reporting a speedup or regression you measured → the **benchmark-checklist** skill before you report or act on the number.
 - Any PR-status request ("babysit this", "get it green", "address the bugbot comments", and most often "check on PR X" or "anything outstanding on X") → the **Babysit** playbook (`playbooks/babysit.md`), not Cursor's built-in babysit skill, whose description matches the same words. Never triggered by merely opening a PR. Declare its mode before polling. The playbook's step 1 owns the request-to-mode mapping. Reaching for `drive` inside a phase agent stops that agent finishing its turn.
@@ -45,7 +47,7 @@ Read the leaf skill in full for any principle you apply. Read every leaf the tas
 
 **Core**
 
-- **Laziness Protocol.** Refactoring, sizing a diff, or tempted to add abstractions, layers, or signal threading. Bias to deletion and the smallest change that solves the problem.
+- **Laziness Protocol.** Refactoring, sizing a diff, or tempted to add abstractions, layers, or signal threading. Bias to deletion and the smallest change that solves the problem. Never alone: whenever you apply or cite it, also apply **Prove It Works** and at least one partner that fits the task, per **Never alone** in its leaf (Fix Root Causes for a bug, Test Behavior Not Implementation for tests, Subtract Before You Add or Minimize Reader Load for a refactor, Redesign from First Principles for a new requirement, Model the Domain for a repeated value, Sequence Work into Verifiable Units for a sweep, Experience First for scope). A reply that cites Laziness Protocol with no partner has misapplied it.
 - **Foundational Thinking.** Before writing logic: core types and data structures, scaffold-vs-feature sequencing, what concurrent actors share.
 - **Redesign from First Principles.** Integrating a new requirement into an existing design. Redesign as if it had been foundational from day one.
 - **Attack the Premise.** Two or more fixes that share one premise have failed the same gate. Write the premise down and test it directly before you write another fix that assumes it.
@@ -147,7 +149,7 @@ These rules apply directly. They do not require a separate leaf skill, subagent,
 
 Any one-way-door decision (a public API, a schema, persisted data, a security boundary) takes the High design route whatever the tier. When work turns out bigger than its tier, move it up a tier and say so. Do not rerun the gates it already passed.
 
-**Run independent gates together.** Read-only gates on the same SHA run at the same time: verification, `interrogate`, and a verification swarm do not wait for each other. Gates that edit code (`no-comments`, `deslop`, formatting) run one after another, then the read-only gates run once on the result.
+**Run independent gates together.** Read-only gates on the same SHA run at the same time: verification, `interrogate`, `judgment`, and a verification swarm do not wait for each other. Gates that edit code (`no-comments`, `deslop`, formatting) run one after another, then the read-only gates run once on the result.
 
 **Speed never costs capability.** Every swarmed agent runs the same role model at the same budget effort a solo agent would, and fast mode keeps its urgency rule. The time comes from these moves instead, plus the general moves in **Fastest route**:
 

@@ -57,7 +57,10 @@ pub fn job_name(seq: usize, rank: usize, sha: &str) -> String {
 }
 
 fn sha_of(name: &str) -> &str {
-    name.trim_end_matches(".json").rsplit('-').next().unwrap_or("")
+    name.trim_end_matches(".json")
+        .rsplit('-')
+        .next()
+        .unwrap_or("")
 }
 
 pub struct Spool {
@@ -68,7 +71,8 @@ impl Spool {
     pub fn open(repo: &Path) -> Result<Spool> {
         let root = home(repo)?.join("jobs");
         for stage in STAGES {
-            fs::create_dir_all(root.join(stage.dir())).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
+            fs::create_dir_all(root.join(stage.dir()))
+                .map_err(|e| format!("cannot create {}: {e}", root.display()))?;
         }
         Ok(Spool { root })
     }
@@ -81,7 +85,8 @@ impl Spool {
         let tmp = self.dir(stage).join(format!(".{name}.tmp"));
         let bytes = serde_json::to_vec_pretty(job).map_err(|e| e.to_string())?;
         fs::write(&tmp, bytes).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, self.dir(stage).join(name)).map_err(|e| format!("cannot publish job {name}: {e}"))
+        fs::rename(&tmp, self.dir(stage).join(name))
+            .map_err(|e| format!("cannot publish job {name}: {e}"))
     }
 
     pub fn push(&self, name: &str, job: &Job) -> Result<()> {
@@ -95,16 +100,28 @@ impl Spool {
     /// Job names in a stage, in run order. With `sha`, only that commit's jobs.
     pub fn list(&self, stage: Stage, sha: Option<&str>) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(self.dir(stage))
-            .map(|dir| dir.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .map(|dir| {
+                dir.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
             .unwrap_or_default();
-        names.retain(|n| !n.starts_with('.') && n.ends_with(".json") && sha.is_none_or(|s| sha_of(n) == short_sha(s)));
+        names.retain(|n| {
+            !n.starts_with('.')
+                && n.ends_with(".json")
+                && sha.is_none_or(|s| sha_of(n) == short_sha(s))
+        });
         names.sort();
         names
     }
 
     /// Moves a queued job to running. Only one caller wins the rename, the others get `None`.
     pub fn claim(&self, name: &str) -> Option<Job> {
-        fs::rename(self.dir(Stage::Queued).join(name), self.dir(Stage::Running).join(name)).ok()?;
+        fs::rename(
+            self.dir(Stage::Queued).join(name),
+            self.dir(Stage::Running).join(name),
+        )
+        .ok()?;
         self.read(Stage::Running, name)
     }
 
@@ -129,6 +146,10 @@ impl Spool {
 
     /// The short SHAs that have a file in any stage.
     pub fn shas(&self) -> HashSet<String> {
-        STAGES.iter().flat_map(|s| self.list(*s, None)).map(|n| sha_of(&n).to_string()).collect()
+        STAGES
+            .iter()
+            .flat_map(|s| self.list(*s, None))
+            .map(|n| sha_of(&n).to_string())
+            .collect()
     }
 }

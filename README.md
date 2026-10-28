@@ -1,6 +1,6 @@
 # Xstack
 
-Use Xstack to write specifications, design changes, create tickets, and build software with AI agents. The package contains 61 skills from pstack and adaptations of `to-spec`, `to-evol`, and `to-tickets`.
+Use Xstack to write specifications, design changes, create tickets, and build software with AI agents. The package contains 62 skills from pstack and adaptations of `to-spec`, `to-evol`, and `to-tickets`.
 
 ## Install the skills
 
@@ -70,7 +70,6 @@ If you are running from the parent directory of the Xstack repository, you can i
 
 ### Installation options
 
-
 | Flag | Effect |
 |---|---|
 | `-l`, `--list` | List the skills, then exit without installing. |
@@ -118,6 +117,8 @@ cargo install --locked --path worker
 worker probe
 ```
 
+`cargo install` puts the binary in `~/.cargo/bin`. Add that directory to `PATH` to run `worker` and `subtask` by name. The session hook and the skills also find the binaries without it. To learn what the worker checks and when, read [How the worker verifies your changes](#how-the-worker-verifies-your-changes).
+
 `worker split` distributes input items across worker queues. Each command receives at most 32 items. When a worker finishes its queue, it takes half another worker's remaining items. Running commands keep their arguments and do not restart. `-j N` limits concurrent commands, not the total number of batches.
 
 Use `--each` when each input item needs its own test command. Use `--keep-going` to finish pending batches after a failure. The default stops pending work and cancels running siblings on the first failure. Timeouts apply to each command.
@@ -133,8 +134,9 @@ subtask hot
 
 `subtask hot` checks that `subtask` and `worker` match their sources, warms the CPU sample, and prints one `SUBTASK HOT` line, or `SUBTASK COLD` with the rebuild command. In Claude Code the plugin's `hooks/hooks.json` runs it at every session start, and starts the build in the background when a binary is missing or stale, so `subtask` is the default for mechanical fan-out without a manual step. `/setup-xstack` builds both binaries and adds the same pointer to the project's `## Xstack` block for other harnesses.
 
-`subtask` runs subtasks for an agent without any model call: one shell command per item (`--sh "cmd {}"`, or 32 items per process without `{}`), HTTP requests (`--http`), and file reads (`--grep`, `--hash`, `--lines`), or JSONL lines that mix them. Each kind has its own Tokio pool, sized from idle cores, free memory, and the descriptor limit, and split evenly across every `subtask` running at once. The verification worker registers in the same share, so a background verification takes its even share of the cores and leaves the HTTP and file pools to subtasks. Results stream to a JSONL file (`--out`); stdout prints a one-line summary and the first failures. The default stops on the first failure; `--keep-going` runs everything. `worker probe` and `subtask probe` reuse a recent CPU sample, so they return in a few milliseconds.
+`subtask` runs subtasks for an agent without any model call: one shell command per item (`--sh "cmd {}"`, or 32 items per process without `{}`), HTTP requests (`--http`), and file reads (`--grep`, `--hash`, `--lines`), or JSONL lines that mix them. Each kind has its own Tokio pool, sized from idle cores, free memory, and the descriptor limit, and split evenly across every `subtask` running at once. The verification worker registers in the same share, so a background verification takes its even share of the cores and leaves the HTTP and file pools to subtasks. Results stream to a JSONL file (`--out`). Stdout prints a one-line summary and the first failures. By default, `subtask` stops at the first failure. `--keep-going` runs every task.
 
+In a sandbox with a read-only temp directory, `subtask` still runs. It runs alone instead of joining the share, and it writes the results file to the working directory. If that directory is also read-only, it prints the JSONL results to stdout above the summary. `worker probe` and `subtask probe` reuse a recent CPU sample, so they return in a few milliseconds.
 
 ## Set up your project
 
@@ -150,6 +152,7 @@ Open the project you want to work on, not the Xstack installation directory. Run
 - Where to publish specifications and tickets, using local Markdown files or a service such as GitHub.
 - The project label or status for work that agents can pick up. Skills resolve the actual value through the `ready-for-agent` mapping.
 - A code formatter for each language. If a formatter is missing, setup asks for approval before installing one.
+- The `worker` and `subtask` binaries. Setup builds them when they are missing or stale, and checks that `subtask hot` and `worker probe` run. If `~/.cargo/bin` is not on `PATH`, setup offers to add it.
 - The locations of your project glossary and architecture decision records.
 
 By default, project configuration lives in these files:
@@ -190,6 +193,28 @@ In Claude Code plugin mode, add `xstack:` before the skill name. For example, `/
 
 For more task examples, read the [usage guide](docs/guide/README.md).
 
+## How the worker verifies your changes
+
+A full test suite can take minutes. If an agent waits for it after every commit, ten commits cost half an hour of waiting. If the agent skips it, a broken commit can reach a PR. `worker` splits verification into three layers, so the agent waits only for fast checks and nothing unverified leaves the machine.
+
+```mermaid
+flowchart LR
+  E[Edit] --> F["worker fast"]
+  F -->|FAST OK| C[Commit]
+  C --> Q["worker enqueue"]
+  Q -.->|background| S["worker status"]
+  S --> G["worker gate"]
+  G -->|GATE OK| P[Push or PR]
+```
+
+1. **`worker fast` runs before each commit.** It runs the affected tests, the formatter check, and the type check at the same time. The first failure stops the other checks, so the error appears without a wait for the slowest one. The target is under 30 seconds.
+2. **`worker enqueue` runs the full suite after each commit.** A detached worker checks out that exact commit in its own worktree and runs every check at low priority. The agent starts the next task at once. At each task boundary, `worker status` reads the result. A failure stops new work until a fix lands. When more than three commits wait for a result, the agent waits for the oldest one first.
+3. **`worker gate` runs before anything leaves the machine.** Push, a new PR, a ship, and a report that the work is done each need `GATE OK`. On a pending check, the gate waits for it. This wait and the three-commit limit are the only times the agent blocks on verification.
+
+Full test suites share the cores through slots. A foreground `worker run --check` takes a slot from the top. The background worker takes slots from the bottom and always leaves the top slot free. `subtask` runs share the same cores evenly with the background worker.
+
+The worker has no tiers. The Easy, Medium, and High tiers in `poteto-mode` estimate how long a task takes one agent. They set how many agents write code in parallel. Every tier runs all three verification layers at full strength.
+
 ## Skills
 
 ### Setup and help
@@ -221,6 +246,7 @@ For more task examples, read the [usage guide](docs/guide/README.md).
 - [`blast-radius`](skills/blast-radius/SKILL.md): find what a change could break outside its diff.
 - [`interrogate`](skills/interrogate/SKILL.md): adversarial review by several models.
 - [`no-comments`](skills/no-comments/SKILL.md): review comments and fix the accepted findings.
+- [`judgment`](skills/judgment/SKILL.md): judge finished work before a commit or PR (the feature against the ask, the writing, the spacing) and nag until it is clean. Read-only.
 - [`benchmark-checklist`](skills/benchmark-checklist/SKILL.md): vet a performance measurement before you report it.
 - [`correct`](skills/correct/SKILL.md): make repeated agent mistakes impossible with structure, types, lints, or tests.
 

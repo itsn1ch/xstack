@@ -1,0 +1,58 @@
+schema_version: "1.0"
+name: laziness-boundary-tests
+description: A one-line fix to a function with numeric limits still tests both sides of each limit.
+tags: [laziness]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill]
+  prompt: |
+    /xstack:principle-laziness-protocol parse_port in netcfg.py accepts "70000" and "-5", which are not TCP ports. Make it raise ValueError for anything that is not a valid port. Keep the change small. Tell me what you changed when you are done.
+graders:
+  - type: regex
+    name: fix-rejects-out-of-range
+    target: {source: file, path: netcfg.py}
+    pattern: "65535"
+  - type: regex
+    name: no-new-abstraction
+    target: {source: file, path: netcfg.py}
+    pattern: "^class "
+    flags: m
+    match: not_contains
+  - type: regex
+    name: upper-edge-tested
+    target: {source: file, path: tests/test_netcfg.py}
+    pattern: "65536"
+  - type: regex
+    name: top-valid-port-tested
+    target: {source: file, path: tests/test_netcfg.py}
+    pattern: "65535"
+  - type: regex
+    name: lower-edge-tested
+    target: {source: file, path: tests/test_netcfg.py}
+    pattern: "[\"'](0|-\\d+)[\"']"
+  - type: regex
+    name: non-number-tested
+    target: {source: file, path: tests/test_netcfg.py}
+    pattern: "(?<![\"'])(\"\"|''|[\"'][A-Za-z][^\"'\\n]*[\"']|[\"']\\d+[^\\d\"'\\n][^\"'\\n]*[\"'])(?![\"'])"
+  - type: tool_used
+    name: tests-run-through-worker
+    tool: Bash
+    input_match: "fast --check .*(unittest|pytest)"
+    min: 1
+  - type: llm
+    name: report-names-proof
+    criteria: The final reply says what changed and cites the test run as proof. It does not offer a formatter or linter result as the only proof.
+  - type: regex
+    name: pairs-prove-it-works
+    target: last_message
+    pattern: "prove it works"
+    flags: i
+  - type: regex
+    name: names-a-partner-principle
+    target: last_message
+    pattern: "fix root causes|test behavior|subtract before you add|minimize reader load|redesign from first principles|model the domain|sequence work|verifiable units|experience first"
+    flags: i

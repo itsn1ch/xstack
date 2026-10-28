@@ -24,17 +24,26 @@ pub struct Budget {
 }
 
 fn excluded(path: &str, excludes: &[String]) -> bool {
-    excludes.iter().any(|p| path == p || path.ends_with(p.as_str()) || (p.ends_with('/') && path.starts_with(p.as_str())))
+    excludes.iter().any(|p| {
+        path == p
+            || path.ends_with(p.as_str())
+            || (p.ends_with('/') && path.starts_with(p.as_str()))
+    })
 }
 
 /// Counts added and removed lines between `base` and the working tree.
 /// Includes untracked files and skips files that match the exclusion list.
 pub fn measure(repo: &Path, base: &str, extra_excludes: &[String]) -> Result<Budget> {
-    let excludes: Vec<String> = DEFAULT_EXCLUDES.iter().map(|s| s.to_string()).chain(extra_excludes.iter().cloned()).collect();
+    let excludes: Vec<String> = DEFAULT_EXCLUDES
+        .iter()
+        .map(|s| s.to_string())
+        .chain(extra_excludes.iter().cloned())
+        .collect();
     let mut files = Vec::new();
     for line in lines(&git(repo, &["diff", "--numstat", base])?) {
         let mut parts = line.splitn(3, '\t');
-        let (Some(added), Some(removed), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+        let (Some(added), Some(removed), Some(path)) = (parts.next(), parts.next(), parts.next())
+        else {
             continue;
         };
         if excluded(path, &excludes) {
@@ -56,5 +65,8 @@ pub fn measure(repo: &Path, base: &str, extra_excludes: &[String]) -> Result<Bud
         files.push((path, count));
     }
     files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    Ok(Budget { total: files.iter().map(|f| f.1).sum(), files })
+    Ok(Budget {
+        total: files.iter().map(|f| f.1).sum(),
+        files,
+    })
 }

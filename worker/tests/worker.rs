@@ -474,7 +474,15 @@ fn a_busy_slot_held_by_another_process_makes_the_background_check_wait() {
         .args([lock.as_str(), "sleep", "1.5"])
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(200));
+    // Wait until the holder really has the lock, so a slow spawn under load cannot let the check through.
+    while Command::new("flock")
+        .args(["-n", lock.as_str(), "true"])
+        .status()
+        .unwrap()
+        .success()
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
     init_with(&dir, &["true"], |o| o.parallel = Some(1));
     let started = Instant::now();
     scheduler::drain(&dir).unwrap();

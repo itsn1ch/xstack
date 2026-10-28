@@ -37,6 +37,8 @@ git show <hash>
 git log <old>..<new> -p -- <file>
 ```
 
+When the seed list has more than a few files, strings, or commits, run these commands as one `subtask --keep-going --tasks <history.jsonl>` call, one task per command (`{"argv": ["git", "log", "--follow", "--oneline", "--", "<file>"]}`), then read only the result lines you need from the JSONL results file. The same holds for the searches below when the file list comes from an earlier step: `subtask --grep '<regex>' --keep-going < files`. Use the binary path from the `SUBTASK HOT` line, per **Subtasks** in poteto-mode.
+
 Look for out-of-band docs:
 
 ```bash

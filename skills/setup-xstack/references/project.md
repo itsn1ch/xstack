@@ -71,4 +71,6 @@ Maintain exactly one `## Xstack` block containing six short context pointers:
 - After the formatter, judge every ticket (or task) once with `/judgment` in one background subagent, and push or open a PR only on `JUDGMENT PASS` for every ticket it carries, per poteto-mode.
 - At session start, unless a `SUBTASK HOT` line is already in context, run `subtask hot` from `<xstack root>/subtasks/target/release`, `PATH`, or `~/.cargo/bin`, in that order. Fan mechanical work out through subtask by default, per **Subtasks** in poteto-mode. For eligible mechanical work, the host-authorized command `subtask skill --help` describes the shared executor; follow the calling skill's restrictions. If unavailable, keep the existing workflow. Run tests through `worker`, per **Tests and verification** in poteto-mode.
 
+When the model policy is harness-managed, the block also holds one `- Models: <location>` line, so the setup gate finds the models without a `pstack-models` file. Keep that line on every rewrite.
+
 Use the actual paths in the pointers. Update an existing Xstack block in place. If an existing `## Agent skills` block already owns these pointers, update that block instead of duplicating it. Preserve unrelated instructions. Re-read both configuration files and instruction pointers after writing.

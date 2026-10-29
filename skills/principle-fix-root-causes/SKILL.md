@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Fix Root Causes
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 When debugging, fix the fault, not the place where it surfaced. The symptom is where a wrong state became visible. The root cause is the first place the system did something it should not do, or failed to handle a state it should handle.
 
 For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going`, post-edit resweeps, and actual item, failure, and remaining-finding counts. Evidence and agent judgment determine whether instances share a root cause.

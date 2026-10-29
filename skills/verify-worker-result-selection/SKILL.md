@@ -5,6 +5,8 @@ description: Check worker verification-result reuse, configuration validity, and
 
 # Verify worker result selection
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Use this when changing `worker/src/state.rs` result validity, `own_result` or `result_for`, or their callers that rely on verification results, especially `worker/src/queue.rs` (`enqueue`, `wait_for`, `unverified_depth`, `gate`).
 
 **Property:** A returned result is final, belongs to the current check/copy configuration, and comes from the requested commit, an identical tree, or (unless an own result is required) a skipped commit's supersession chain; if an eligible result exists, one is returned. An own result takes precedence over supersession.

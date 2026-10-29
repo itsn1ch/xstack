@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Swarm
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 ## Start
 
 Open a todolist with one entry per phase before launching anything.

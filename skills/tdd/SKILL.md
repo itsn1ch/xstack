@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # TDD
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Make the intended behavior executable before changing production code. For a bug, the check fails because the bug exists. For a feature, it fails because the behavior does not exist yet. The goal is a focused check that fails before the change and passes after it.
 
 The red step is never skipped. What adapts is the kind of check. When a test would be impractical (broad harness setup, brittle mocks, slow end-to-end infrastructure, production-only state, or large unrelated fixture churn), the red step uses the closest executable check instead, per **If a Failing Test Is Impractical**. It still runs and fails before the change.

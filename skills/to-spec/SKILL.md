@@ -4,6 +4,8 @@ description: "Turn the current conversation into a spec and publish it to the pr
 disable-model-invocation: true
 ---
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
 Read the project's agent instructions and follow their issue-tracker, triage-label, and domain-document pointers. Otherwise read `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` from the project root, as configured by `/setup-xstack`. Resolve the `ready-for-agent` role to its saved label/status instead of assuming the literal name. Reuse existing project configuration; if required publication configuration is missing, direct the user to `/setup-xstack` before publishing. This is configuration, not a new requirements interview.

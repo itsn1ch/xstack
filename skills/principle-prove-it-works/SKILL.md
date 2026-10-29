@@ -6,11 +6,14 @@ disable-model-invocation: true
 
 # Prove It Works
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Verify every task output by checking the real thing directly. Do not infer from proxies, self-reports, or "it compiles."
 
 **Why:** Unverified work has unknown correctness. Indirect verification (file mtimes, output freshness, agent self-reports, cached screenshots) feels cheaper than direct observation. Acting on a wrong inference costs far more than checking the source.
 
 Check the real thing, not a proxy:
+
 - Check process liveness directly, not indirectly through derived state
 - Read the actual value, not a cached or derived representation
 - When verification fails, suspect the observation method before suspecting the system

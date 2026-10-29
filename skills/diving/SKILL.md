@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Diving
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 **Trace first. Reason from evidence. Verify only what matters.** Find where the code first breaks its contract, prove what can be proven, and stop once it is found.
 
 **Do not stop at uncertainty.** Investigate until the earliest violated boundary is found, or a concrete, evidenced blocker makes further investigation impossible. Be relentless in tracing code, conservative with hardware, and uncompromising about evidence.

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Create a verification skill
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Every serious project needs a scripted way to drive the real app and prove behavior: launch it, exercise a feature the way a user would, and capture evidence. This skill generates that as a project-local skill (`<skills>/verify-<app>/`) tailored to the repo. `<skills>` is your harness's project skill folder: `.cursor/skills/` in Cursor, `.claude/skills/` in Claude Code, `.pi/skills/` in Pi, `.agents/skills/` in Codex, OpenCode, and others. If the repo already keeps skills in one of these, use that one. You write the generator's output for the next agent, not for a human: it will be read cold, mid-task, by an agent that has never seen the app.
 
 ## 0. Subtask and worker are mandatory

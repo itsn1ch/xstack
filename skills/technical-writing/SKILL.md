@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Technical writing
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Write so a tired engineer understands on the first read. Apply all four layers.
 
 Three rules sit above the layers:

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Experience First
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 When implementation convenience conflicts with user delight, choose delight.
 
 - Every feature, control, and option must be justified
@@ -16,4 +18,4 @@ When implementation convenience conflicts with user delight, choose delight.
 
 The user is whoever consumes the work. For a UI that is the end user. For a library or an internal API it is the colleague who imports it. The engineer who maintains the code next is a user too. Weigh their experience the same way, and explain impact from their perspective.
 
-Foundations should serve the experience. Foundational thinking governs the *sequence* of work. This principle governs the *target*.
+Foundations should serve the experience. Foundational thinking governs the _sequence_ of work. This principle governs the _target_.

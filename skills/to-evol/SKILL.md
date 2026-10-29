@@ -4,6 +4,8 @@ description: "Turn a conversation into a risk-adaptive evolution spec for a ship
 disable-model-invocation: true
 ---
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Produce an **evolution spec** for changing a shipped feature. Preserve the baseline-first design and specify only the agreed delta. Investigate until the change is sufficiently understood to implement and verify safely, not until every conceivable uncertainty is eliminated. For a feature that does not exist yet, use **to-spec** instead.
 
 Read the project's agent instructions and follow their issue-tracker, triage-label, and domain-document pointers. Otherwise read `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` from the project root, as configured by `/setup-xstack`. Resolve the `ready-for-agent` role to its saved label/status instead of assuming the literal name. Reuse existing project configuration; if required publication configuration is missing, direct the user to `/setup-xstack` before publishing. Continue reachable specification work without inventing configuration or silently switching trackers.

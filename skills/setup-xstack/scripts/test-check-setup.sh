@@ -10,7 +10,8 @@ check() { if [ "$1" = ok ]; then :; else
 fi; }
 
 for skill in "$xstack"/skills/*/SKILL.md; do
-	case "$skill" in */setup-xstack/SKILL.md) continue ;; esac
+	# setup-xstack runs the setup, and poteto-help explains it, so both work before setup.
+	case "$skill" in */setup-xstack/SKILL.md | */poteto-help/SKILL.md) continue ;; esac
 	grep -q '^\*\*Setup gate\.\*\* .*setup-xstack/scripts/check-setup\.sh' "$skill" && r=ok || r=no
 	check $r "missing setup gate in ${skill#"$xstack"/}"
 done
@@ -42,6 +43,11 @@ out=$(run) && r=ok || r=no
 check $r "a configured project failed: $out"
 [ "$out" = "XSTACK READY" ] && r=ok || r=no
 check $r "ready output was: $out"
+
+rm "$tmp/home/.agents/pstack-models.md"
+printf -- '- Models: configured by the harness policy\n- See `GLOSSARY.md` once it exists.\n' >>"$tmp/project/AGENTS.md"
+out=$(run) && r=ok || r=no
+check $r "a harness-managed model policy or a future glossary failed: $out"
 
 [ "$fail" = 0 ] && echo "CHECK-SETUP OK"
 exit "$fail"

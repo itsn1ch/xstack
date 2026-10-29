@@ -36,7 +36,7 @@ Preview the exact changed model roles, model-settings destination, formatter per
 
 After approval:
 
-1. Follow model-reference step 5 to write approved model settings, or retain the existing settings unchanged when no model change was requested. Under a harness-managed policy, use its supported configuration mechanism and report the actual location. If persistence is unavailable, report that part as blocked rather than claiming completion.
+1. Follow model-reference step 5 to write approved model settings, or retain the existing settings unchanged when no model change was requested. Under a harness-managed policy, use its supported configuration mechanism, report the actual location, and record it as a `Models: <location>` line in the Xstack block so the setup gate can find it. If persistence is unavailable, report that part as blocked rather than claiming completion.
 2. Run the approved formatter installs, config files, and scripts, then write `docs/agents/formatter.md` per formatter-reference step 4. Never reformat existing files here.
 3. Follow project-reference **Write the configuration** to persist tracker operations, label mapping, domain pointers, the formatter pointer, and one instruction block in the target project.
 4. Build the binaries when `subtask hot` did not print `SUBTASK HOT`: `cargo build --release --manifest-path <xstack root>/worker/Cargo.toml`, then the same for `<xstack root>/subtasks/Cargo.toml`. Start the build in the background before the other writes and wait for it here. Without Cargo, report subtasks and background verification as blocked with the install hint, not as configured. If the user approved the `PATH` line, add it to the shell profile once. Never add a second copy.
@@ -55,8 +55,7 @@ Read the saved configuration back and resolve each pointer from the project root
 - Domain paths describe actual existing documents or clearly state that none exist yet. Every configuration pointer resolves, and exactly one owning instruction block (`Xstack` or the reused `Agent skills` block) contains those pointers.
 - `subtask hot` prints `SUBTASK HOT`, so `to-spec`, `to-evol`, `to-tickets`, and poteto-mode fan mechanical work out through it by default. `worker probe` prints a hardware reading, so poteto-mode can run `worker fast`, the background `worker enqueue`, and `worker gate`. Background verification needs a Git repository. Report a project without Git as blocked for background verification. Setup does not run `worker init`, because poteto-mode registers the project's full suite at its first session. In Claude Code the plugin's SessionStart hook prints that line in every new session; elsewhere the Xstack block's subtask pointer does.
 - `to-spec`, `to-evol`, and `to-tickets` can obtain their configuration from the project files without another setup command.
-
-- `sh scripts/check-setup.sh` from the project root prints `XSTACK READY`. Every other xstack skill runs this check as its setup gate and refuses to start without that line, so a setup that leaves it red blocks all of them.
+- `sh <this file's directory>/scripts/check-setup.sh` from the project root prints `XSTACK READY`. Every other xstack skill runs this check as its setup gate and refuses to start without that line, so a setup that leaves it red blocks all of them.
 
 Report saved and retained file locations, verification results, and any blocked part separately. Setup is complete only when model settings, the formatter configuration, project publication configuration, `subtask hot`, and `worker probe` are usable. Mention new-session requirements for automatically loaded model rules. If the user requested only a model or tracker change, still check the retained side before declaring the unified setup complete.
 

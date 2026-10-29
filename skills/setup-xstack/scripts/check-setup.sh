@@ -16,17 +16,21 @@ done
 if [ -z "$block" ]; then
 	add "no ## Xstack block in CLAUDE.md or AGENTS.md"
 else
-	for pointer in $(printf '%s\n' "$block" | grep -o '`[^`<> ]*\.md`' | tr -d '`'); do
+	# Configuration files must exist. Domain documents such as a glossary may legitimately not exist yet.
+	for pointer in $(printf '%s\n' "$block" | grep -i -e 'docs/agents/' -e 'formatter' | grep -o '`[^`<> ]*\.md`' | tr -d '`'); do
 		[ -f "$root/$pointer" ] || add "configuration pointer $pointer does not exist"
 	done
-	printf '%s\n' "$block" | grep -q 'formatter' || add "the Xstack block names no formatter configuration"
+	printf '%s\n' "$block" | grep -qi 'formatter' || add "the Xstack block names no formatter configuration"
 fi
 
 models=""
 for f in "$HOME/.claude/rules/pstack-models.md" "$HOME/.cursor/rules/pstack-models.mdc" "$HOME/.agents/pstack-models.md"; do
 	[ -f "$f" ] && models=$f
 done
-[ -n "$models" ] || add "no model settings (pstack-models) for any harness"
+# A harness-managed model policy has no file. Setup records its location as a `Models:` line in the block.
+printf '%s\n' "$block" | grep -qi '^[-* ]*models:' && models=block
+[ -n "${XSTACK_MODELS:-}" ] && models=env
+[ -n "$models" ] || add "no model settings (pstack-models file, or a Models: line in the Xstack block)"
 
 find_binary() {
 	for root_dir in "${XSTACK_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$here/../../.."; do

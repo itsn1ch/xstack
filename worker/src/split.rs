@@ -56,6 +56,7 @@ pub fn run(cwd: &Path, items: &[String], command: &[String], options: SplitOptio
             options.workers,
             options.fail_fast,
             options.timeout_ms,
+            None,
         );
     }
 

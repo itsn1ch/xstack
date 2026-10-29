@@ -14,7 +14,8 @@
    7. Do it cheaper.
 
    When an earlier mantra meets the target, stop.
-3. Plan the fix from the trace. The red step per the **tdd** skill is the measured baseline failing the target, recorded before the fix. If it crosses a function boundary, design it first at the size the tier earns, per **Scale the ceremony to the tier**. Delegate implementation to a subagent using your configured perf-issue model (default `grok-4.7-xhigh-fast`). Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section. Review the diff. Capture a post-fix trace.
+
+3. Plan the fix from the trace. The red step per the **tdd** skill is the measured baseline failing the target, recorded before the fix. If it crosses a function boundary, run `to-tickets` in **design-only** mode first, passing the grounding; reuse it while fresh and complete and re-ground changed or uncovered subsystems as needed. Delegate implementation to a subagent using your configured perf-issue model (default `grok-4.7-xhigh-fast`). Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section. Review the diff. Capture a post-fix trace. If implementation exposes a wrong architecture, re-ground and redesign per `to-tickets` Phase E.
    Apply the **sequence-verifiable-units** principle skill, verifying each attempt before trying the next.
 4. Parse and compare the artifacts (JSON to sqlite, diff). "Inconclusive" or wrong-surface is not a pass. Flag it.
 5. Cite the measurement in the PR.

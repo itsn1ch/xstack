@@ -22,6 +22,10 @@ pub struct Job {
     pub cmd: String,
     pub worktree: PathBuf,
     pub timeout_ms: u64,
+    /// Unique among the jobs that can run at once, across every commit in flight.
+    /// The worker replaces `{slot}` with it and exports it as `XSTACK_WORKER_SLOT`.
+    #[serde(default)]
+    pub slot: usize,
     /// This check failed at the baseline. Its failure does not stop the commit's other jobs.
     #[serde(default)]
     pub preexisting: bool,

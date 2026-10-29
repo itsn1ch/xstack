@@ -1,0 +1,10 @@
+{
+  "name": "xstack-dev-tools",
+  "private": true,
+  "scripts": {
+    "format": "prettier --write --ignore-unknown"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

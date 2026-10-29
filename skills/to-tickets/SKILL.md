@@ -17,9 +17,10 @@ Every design ships a **design contract**, per [`references/design-contract.md`](
 Pick the mode before Phase A, and name it in the todolist.
 
 - **Tickets.** The default when a person invokes `/to-tickets`, unless the request asks to build, implement, or fix it now. Also used whenever the work does not fit one fresh context window, or when a caller such as Multi-phase plan asks for a ticket set. Phase D publishes tickets per [`references/tickets.md`](references/tickets.md) and writes no implementation code.
-- **Implement.** The default when another skill or playbook routes design-before-code here (poteto-mode's Feature, Bug fix, Perf issue, and Refactoring, or **no-comments**), unless that caller asks for tickets. Also used when a person's request asks to build, implement, or fix it now ("design this and implement it"). Phase D writes the code.
+- **Implement.** The default when another skill or playbook routes design-before-code here without explicitly requesting tickets or design-only (such as **no-comments**). Also used when a person's request asks to build, implement, or fix it now ("design this and implement it"). Phase D writes the code.
+- **Design-only.** Use only when a caller explicitly requests `to-tickets` in design-only mode. Run the grounding, parallel design exploration, synthesis, and contract checks in Phases A and B, then return the selected design package and its evidence to the caller. Do not publish a design or tickets, write implementation or sketch files, enter Phase D, or request a new human approval. The caller owns its subsequent checkpoint, delegation, implementation, verification, and any Phase E redesign.
 
-State the chosen mode and the reason in the first reply line, so the invoker can correct it before Phase D. Skip Phases A to C only when the invoker points to an existing contract that the work implements without changing it, or when the work changes no function, type, or contract entry. When an existing contract needs a change, including an evolution spec from **to-evol** with Contract Impact, ground the existing feature and run Phase B over the changed parts of its contract.
+State the chosen mode and the reason in the first reply line, so the invoker can correct it before Phase D. In design-only mode, this is a handoff to the caller, not an approval request; run Phases A and B before returning. In other modes, skip Phases A to C only when the invoker points to an existing contract that the work implements without changing it, or when the work changes no function, type, or contract entry. When an existing contract needs a change, including an evolution spec from **to-evol** with Contract Impact, ground the existing feature and run Phase B over the changed parts of its contract.
 
 **Mechanical work and ownership.** Make `subtask` hot before the first step, per **Subtasks** in poteto-mode: skip it when a `SUBTASK HOT` line is already in context, otherwise run `<xstack root>/subtasks/target/release/subtask hot`, and on `SUBTASK COLD` start its build in the background and keep going. Batch independent mechanical grounding reads, searches, references, draft processing, and tracker calls through `subtask`; keep dependency-ordered publication in waves. Do not spawn subagents for mechanical work or force a split without independent meaningful work. The root owns scope, design selection, conflict resolution, integration, and final verification; delegates own their assigned detailed writing, which the root does not take over. Give concurrent writers disjoint outputs and resolve shared changes at integration.
 
@@ -27,7 +28,7 @@ Use `worker` per poteto-mode for independent checks in parallel: affected checks
 
 For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch the in-scope mechanical searches with `--keep-going`, resweep affected scope after edits, and report observed items, failures, and remaining findings. The agent decides what findings mean.
 
-Open a todolist with one entry per phase before starting.
+Open a todolist before starting. In design-only mode include Ground, Sketch and contract, and Return design to caller; do not schedule implementation or publication. In the other modes use:
 
 1. Ground
 2. Sketch and contract
@@ -71,7 +72,7 @@ Write the synthesized design's contract last, after the base and grafts are chos
 
 ## Phase C: Agree (opt-in)
 
-Default: proceed directly to Phase D with the synthesized design. No human checkpoint. Tickets mode still asks the user to approve the ticket breakdown inside Phase D.
+In design-only mode, return the selected design package, including its usage, type sketch, design contract, decision, grounding and contract-check results, to the caller now. Do not enter Phase D or ask for sign-off. Otherwise proceed directly to Phase D with the synthesized design by default. No human checkpoint. Tickets mode still asks the user to approve the ticket breakdown inside Phase D.
 
 Opt in to a checkpoint when the invoker explicitly asks: "/to-tickets with checkpoint," "stop and show me before implementing," or similar. Then surface the synthesized design and pause for sign-off.
 
@@ -111,6 +112,6 @@ When you scrap:
 
 ## Outputs
 
-The caller's usage is written first and the type sketch derived from it. The Design section, shaped per `references/rationale-template.md`, holds the usage, the type sketch, the contract, and the decision. In tickets mode, the published ticket set is the other output. No other file is written.
+The caller's usage is written first and the type sketch derived from it. The Design section, shaped per `references/rationale-template.md`, holds the usage, the type sketch, the contract, and the decision. In design-only mode return that package directly to the caller without publishing or writing a design file. In tickets mode, the published ticket set is the other output. No other file is written.
 
 Report the actual number of subagents, the `subtask` batches and work they covered, and the `worker` invocations and checks, including zero where none ran. Report observed results and any pending, failed, or blocked gates; never describe an unverified result as complete.

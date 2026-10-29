@@ -90,6 +90,12 @@ Jika agent hanya menunjukkan build yang lulus, minta pemeriksaan perilaku:
 
 Selesai jika syarat dalam spesifikasi terpenuhi dan bukti pemeriksaannya tersedia.
 
+Pelebaran pekerjaan boleh, asalkan dikerjakan sekaligus. Agent melaporkan tiket begitu tes tiket lulus dan tidak ada kegagalan baru dibanding baseline. Temuan lain dicatat dulu, lalu diperbaiki bersama dengan satu putaran pemeriksaan. Kegagalan yang sudah ada sebelum pekerjaan dimulai dicatat sebagai penghalang terpisah. Jika agent terus mengulang pemeriksaan, kirim:
+
+```text
+	Laporkan tiket sekarang. Kumpulkan temuan lain, perbaiki sekaligus, lalu verifikasi sekali.
+```
+
 ## Minta bantuan saat perlu
 
 Jika jawaban sulit dipahami, ketik `/bro`. Untuk memilih skill sesuai masalah, gunakan `/poteto-help` beserta tujuan Anda.

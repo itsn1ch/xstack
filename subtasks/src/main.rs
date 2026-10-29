@@ -30,6 +30,8 @@ use xstack_subtasks::engine::{self, Http, SubOptions, Task, Widths};
 use xstack_subtasks::Result;
 use xstack_worker::probe::Meter;
 use xstack_worker::share::{Kind, Share};
+mod skill;
+mod skill_sandbox;
 
 #[derive(Default)]
 struct Args {
@@ -96,6 +98,18 @@ fn parse(argv: Vec<String>) -> Result<Args> {
 
 fn main() -> ExitCode {
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("skill") {
+        return match skill::run(&argv[1..]) {
+            Ok(code) => ExitCode::from(code),
+            Err(message) => {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"status": "failed", "error": message})
+                );
+                ExitCode::from(2)
+            }
+        };
+    }
     let command = match argv.first().map(String::as_str) {
         Some("probe" | "hot") => Some(argv.remove(0)),
         _ => None,

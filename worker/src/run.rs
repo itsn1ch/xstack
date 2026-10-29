@@ -49,6 +49,9 @@ pub struct RunOptions<'a> {
     pub inherit: bool,
     pub cancel: Option<&'a AtomicBool>,
     pub pgid: Option<&'a AtomicI32>,
+    /// Replaces `{slot}` and is exported as `XSTACK_WORKER_SLOT`, so concurrent checks keep separate state.
+    /// Without one, a run that takes a slot lock is named `run<lock>`, apart from the background's numbers.
+    pub slot: Option<String>,
 }
 
 impl RunOptions<'_> {
@@ -60,6 +63,7 @@ impl RunOptions<'_> {
             inherit: false,
             cancel: None,
             pgid: None,
+            slot: None,
         }
     }
 }
@@ -79,9 +83,9 @@ pub fn kill_group(pgid: i32) {
     }
 }
 
-/// Blocks until one slot is free and returns its locked file; the lock is released when the file drops.
+/// Blocks until one slot is free and returns its number and locked file; the lock is released when the file drops.
 /// Retries with a growing delay so a slot freed soon after the first attempt is taken quickly.
-fn acquire_slot(slots: &Slots) -> Option<File> {
+fn acquire_slot(slots: &Slots) -> Option<(usize, File)> {
     let mut files = slots
         .order
         .iter()
@@ -101,7 +105,7 @@ fn acquire_slot(slots: &Slots) -> Option<File> {
             |file| unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
         );
         if let Some(i) = free {
-            return Some(files.swap_remove(i));
+            return Some((slots.order[i], files.swap_remove(i)));
         }
         sleep(delay);
         delay = (delay * 2).min(SLOT_RETRY_MAX);
@@ -134,7 +138,11 @@ fn pump(
 
 pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult {
     let label = spec.label();
-    let _slot = options.slots.and_then(acquire_slot);
+    let lock = options.slots.and_then(acquire_slot);
+    let slot = options
+        .slot
+        .clone()
+        .or_else(|| lock.as_ref().map(|(i, _)| format!("run{}", i + 1)));
     if options.cancel.is_some_and(|c| c.load(SeqCst)) {
         return CheckResult {
             cmd: label,
@@ -146,7 +154,10 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     let mut command = match spec {
         Spec::Shell(cmd) => {
             let mut c = Command::new("sh");
-            c.arg("-c").arg(cmd);
+            c.arg("-c").arg(match &slot {
+                Some(slot) => cmd.replace("{slot}", slot),
+                None => cmd.clone(),
+            });
             c
         }
         Spec::Argv(argv) => {
@@ -159,6 +170,9 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
         .current_dir(cwd)
         .env("XSTACK_WORKER", "1")
         .process_group(0);
+    if let Some(slot) = &slot {
+        command.env("XSTACK_WORKER_SLOT", slot);
+    }
     if options.nice {
         // SAFETY: setpriority is async-signal-safe and only lowers this child's own priority.
         unsafe {
@@ -288,6 +302,7 @@ pub fn run_all(
     limit: usize,
     fail_fast: bool,
     timeout_ms: u64,
+    slot_prefix: Option<&str>,
 ) -> RunAll {
     let started = Instant::now();
     let cancel = AtomicBool::new(false);
@@ -301,6 +316,7 @@ pub fn run_all(
         let options = RunOptions {
             cancel: Some(&cancel),
             pgid: Some(&pgids[i]),
+            slot: slot_prefix.map(|prefix| format!("{prefix}{}", i + 1)),
             ..RunOptions::new(timeout_ms)
         };
         let result = run_command(cwd, &jobs[i], &options);
@@ -328,9 +344,11 @@ pub fn run_all(
 }
 
 /// Runs all checks in the foreground without waiting for slots. The first failure stops the rest.
+/// Each check's slot is `fast<pid>-<n>`, so concurrent `fast` calls never share one.
 pub fn fast(cwd: &Path, checks: &[String], timeout_ms: u64) -> RunAll {
     let jobs: Vec<Spec> = checks.iter().cloned().map(Spec::Shell).collect();
-    run_all(cwd, &jobs, jobs.len(), true, timeout_ms)
+    let prefix = format!("fast{}-", std::process::id());
+    run_all(cwd, &jobs, jobs.len(), true, timeout_ms, Some(&prefix))
 }
 
 /// Assigns input occurrences to size-balanced queues, starting with the largest.

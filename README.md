@@ -138,6 +138,23 @@ subtask hot
 
 In a sandbox with a read-only temp directory, `subtask` still runs. It runs alone instead of joining the share, and it writes the results file to the working directory. If that directory is also read-only, it prints the JSONL results to stdout above the summary. `worker probe` and `subtask probe` reuse a recent CPU sample, so they return in a few milliseconds.
 
+#### Shared skill execution
+
+Any Xstack skill may invoke `subtask skill` through a command tool authorized by its host. Run it from the workspace root. The host still decides whether the command may run; subtask does not query or replace host permissions.
+
+```sh
+printf '%s\n' '{"id":"source","operation":"lines","path":"README.md"}' |
+  subtask skill --skill judgment
+```
+
+The shared entry point accepts up to 64 JSONL operations and returns one ordered JSON result per operation. `read`, `lines`, `hash`, and `grep` inspect regular workspace files. `read` returns at most 4,000 bytes. Inputs are limited to 8 MiB per file and 32 MiB per batch. Each result identifies the caller-supplied skill label and operation ID; the label is not an authenticated identity. `grep` may return `null` for `truncated` when the existing output tail cannot determine whether truncation occurred. Requested file contents are not automatically redacted; avoid requesting secrets or putting them in IDs and paths.
+
+`replace` requires `--allow-write`, `"authorized":true`, the file's BLAKE3 `"expected_hash"`, and strings `"old"` and `"new"`. The old string must occur exactly once. The operation locks the file and rejects a stale hash. Its lock coordinates cooperating subtask processes only; other programs can still race the final replacement. These controls are separate from host approval. Do not grant them when the calling skill is read-only. A timeout during a replacement may leave a private `.xstack-write-*` file in the workspace; inspect and remove it before retrying.
+
+This entry point requires Linux Landlock ABI 3 or later and fails closed when confinement is unavailable. Its default deadline is 30 seconds for the entire batch; `--timeout-ms` accepts 1 to 300,000 milliseconds. It does not run shell commands, network requests, or verification tools. Unsupported operations return an explicit error; use the original host-approved workflow or `worker` for checks. If the executable is unavailable or the host denies it, retain the original skill workflow. The legacy subtask options described above do not acquire these restrictions.
+
+See `subtask skill --help` and the `subtask-execution` skill for the shared instruction. When installing selected skills, include `subtask-execution` or use the Xstack setup instructions. The agent chooses when to use it; no skill invocation is intercepted automatically.
+
 #### Browser tasks
 
 Browser tasks require `agent-browser` on `PATH` and its browser installed:
@@ -275,7 +292,7 @@ The worker has no tiers. The Easy, Medium, and High tiers in `poteto-mode` estim
 - [`blast-radius`](skills/blast-radius/SKILL.md): find what a change could break outside its diff.
 - [`interrogate`](skills/interrogate/SKILL.md): adversarial review by several models.
 - [`no-comments`](skills/no-comments/SKILL.md): review comments and fix the accepted findings.
-- [`judgment`](skills/judgment/SKILL.md): judge finished work before a commit or PR (the feature against the ask, the writing, the spacing) and nag until it is clean. Read-only.
+- [`judgment`](skills/judgment/SKILL.md): judge each finished ticket once in one background subagent before a push or PR (the feature against the ask, consistency with the existing codebase, the writing, the spacing) and nag until it is clean. Read-only.
 - [`benchmark-checklist`](skills/benchmark-checklist/SKILL.md): vet a performance measurement before you report it.
 - [`correct`](skills/correct/SKILL.md): make repeated agent mistakes impossible with structure, types, lints, or tests.
 

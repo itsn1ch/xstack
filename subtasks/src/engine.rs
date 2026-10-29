@@ -1136,7 +1136,6 @@ fn browser_connection_settings(cwd: &Path) -> std::result::Result<(), String> {
     }
     Ok(())
 }
-
 async fn blocking(work: impl FnOnce() -> std::io::Result<(i64, String)> + Send + 'static) -> Done {
     match tokio::task::spawn_blocking(work).await {
         Ok(Ok((code, output))) => (true, code, output),

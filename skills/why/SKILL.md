@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Why
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Investigate the motivation and intent behind code. The companion `how` skill answers what the code does and how it works. `why` answers what forces led to its shape.
 
 For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going` and actual item, failure, and remaining-finding counts. Independent MCP investigations and interpretation remain with the investigators.

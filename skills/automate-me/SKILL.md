@@ -1,10 +1,12 @@
 ---
 name: automate-me
-description: "Use for \"automate me\", \"create/update/refresh my -mode skill\", \"turn/capture my preferences or working style into a skill\", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill via create-skill + unslop, optionally pulling fresh evidence from recent transcripts."
+description: 'Use for "automate me", "create/update/refresh my -mode skill", "turn/capture my preferences or working style into a skill", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill via create-skill + unslop, optionally pulling fresh evidence from recent transcripts.'
 disable-model-invocation: true
 ---
 
 # Automate me
+
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
 
 A guided flow for turning the user's working conventions into a skill agents will follow. The output is one `-mode` skill tailored to them (e.g. `jay-mode`, `priya-mode`).
 
@@ -22,6 +24,7 @@ Look recursively for `*-mode/SKILL.md` matching the user's handle in your harnes
 - Start fresh (rare, ask why before doing it)
 
 Update mode changes the rest of the flow:
+
 - Step 1 mines only history since the skill was last edited (`git log -1 --format=%cI <path>`).
 - Step 2 asks what's changed or missing, not what to capture from zero.
 - Step 4 edits the existing file in place. Preserve sections the user hasn't contradicted. Revise ones with new evidence. Add new sections only for genuinely new rules.
@@ -109,4 +112,3 @@ Run a description-optimization loop only if the skill's trigger accuracy turns o
 
 - User wants a task-specific skill (not working conventions): `create-skill` alone, no mining required.
 - User wants to capture one narrow workflow (e.g. "how I write commit messages"). That's a regular skill, not a mode skill.
-

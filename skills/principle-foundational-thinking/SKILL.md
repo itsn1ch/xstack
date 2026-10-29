@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Foundational Thinking
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 **Structural decisions** protect option value. **Code-level decisions** protect simplicity.
 
 **Data structures first.** Get the data shape right before writing logic. Define core types early, trace every access pattern, and choose structures that match the dominant paths.

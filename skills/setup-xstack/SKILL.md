@@ -56,6 +56,8 @@ Read the saved configuration back and resolve each pointer from the project root
 - `subtask hot` prints `SUBTASK HOT`, so `to-spec`, `to-evol`, `to-tickets`, and poteto-mode fan mechanical work out through it by default. `worker probe` prints a hardware reading, so poteto-mode can run `worker fast`, the background `worker enqueue`, and `worker gate`. Background verification needs a Git repository. Report a project without Git as blocked for background verification. Setup does not run `worker init`, because poteto-mode registers the project's full suite at its first session. In Claude Code the plugin's SessionStart hook prints that line in every new session; elsewhere the Xstack block's subtask pointer does.
 - `to-spec`, `to-evol`, and `to-tickets` can obtain their configuration from the project files without another setup command.
 
+- `sh scripts/check-setup.sh` from the project root prints `XSTACK READY`. Every other xstack skill runs this check as its setup gate and refuses to start without that line, so a setup that leaves it red blocks all of them.
+
 Report saved and retained file locations, verification results, and any blocked part separately. Setup is complete only when model settings, the formatter configuration, project publication configuration, `subtask hot`, and `worker probe` are usable. Mention new-session requirements for automatically loaded model rules. If the user requested only a model or tracker change, still check the retained side before declaring the unified setup complete.
 
 After the required setup is verified, follow model-reference steps 7 and 8 for optional app-verification and formal-verification offers. Declining either does not block setup. Generating either requires the user's acceptance.

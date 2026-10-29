@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # To Tickets
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 Sketch types, function signatures, class shapes, and module boundaries, as the Design section's Types block in Tickets mode, or as code with `not implemented` bodies and pseudocode in Implement mode. Synthesize across multiple model perspectives, then either fill in code against the chosen sketch or slice it into tickets.
 
 Every design ships a **design contract**, per [`references/design-contract.md`](references/design-contract.md). It names each concept once with its kind and source of truth, states each public function's intent and invariants, and lists the flow in execution order. The contract is the source of truth for the code and for every ticket.

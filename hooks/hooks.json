@@ -7,6 +7,11 @@
             "type": "command",
             "command": "R=\"${CLAUDE_PLUGIN_ROOT}\"; S=\"$R/subtasks/target/release/subtask\"; L=\"${TMPDIR:-/tmp}/xstack-build.log\"; [ -x \"$S\" ] || S=\"$(command -v subtask || echo \"$HOME/.cargo/bin/subtask\")\"; if [ -x \"$S\" ] && \"$S\" hot; then :; else (cargo build --release --manifest-path \"$R/worker/Cargo.toml\" && cargo build --release --manifest-path \"$R/subtasks/Cargo.toml\") </dev/null >\"$L\" 2>&1 & echo \"SUBTASK BUILDING in the background (log $L). Run $R/subtasks/target/release/subtask hot before the first fan-out; until it prints SUBTASK HOT, run mechanical work directly.\"; fi",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/setup-xstack/scripts/check-setup.sh\" || true",
+            "timeout": 10
           }
         ]
       }

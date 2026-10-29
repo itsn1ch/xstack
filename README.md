@@ -186,7 +186,7 @@ After a failed browser task, later tasks in the same run cannot reuse its sessio
 
 ## Set up your project
 
-Open the project you want to work on, not the Xstack installation directory. Run:
+Every other Xstack skill checks this setup before it starts and stops with `XSTACK SETUP MISSING` until `/setup-xstack` has run in the project. Open the project you want to work on, not the Xstack installation directory. Run:
 
 ```text
 /setup-xstack

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Laziness Protocol
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 For mechanical sweeps, follow poteto-mode's **Subtasks** sweep and check rules, including `--keep-going`, post-edit resweeps, and actual item, failure, and remaining-finding counts. The agent decides whether a finding is safe to change.
 
 - **Consolidate decisions.** Do not repeat the same choice in several places. Put it behind one source of truth and pass the result as a simple flag.

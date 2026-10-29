@@ -1,10 +1,12 @@
 ---
 name: interrogate
-description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Multiple LLM reviewers challenge changes from independent angles."
+description: 'Use for "interrogate", "adversarial review", "multi-model review", "challenge this", "stress test this code", "find blind spots", or "tear this apart". Multiple LLM reviewers challenge changes from independent angles.'
 disable-model-invocation: true
 ---
 
 # Interrogate
+
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
 
 Spawn one reviewer per configured model to adversarially review code changes. The adversarial signal comes from model diversity, not assigned personas. The deliverable is a synthesized verdict. Do NOT auto-apply changes.
 
@@ -28,10 +30,10 @@ Launch all reviewers in a single message with the Task tool, one per entry on th
 
 **Other harnesses.** The spawns in this skill use Cursor's `Task` tool. In another harness, use its subagent tool: `Agent` in Claude Code (`subagent_type: general-purpose`), `task` in OpenCode (`subagent_type: general`), `spawn_agent` in Codex. Keep the prompt and the model. Drop parameters your tool doesn't have. If your harness has no subagent tool, as in Pi without an extension, run each reviewer yourself, one after another.
 
-| Subagent | Default model |
-|----------|---------------|
+| Subagent   | Default model           |
+| ---------- | ----------------------- |
 | Reviewer A | `claude-opus-5-5-xhigh` |
-| Reviewer B | `grok-4.7-xhigh-fast` |
+| Reviewer B | `grok-4.7-xhigh-fast`   |
 
 Each reviewer gets `subagent_type: generalPurpose`, `readonly: true`, and `model` set to its configured entry, or its table default when there is no configured line. Omit `model` for an `auto` or `inherit-parent` entry, so that reviewer runs on the parent model.
 
@@ -55,22 +57,29 @@ You are the lead reviewer, a pragmatic senior engineer, not a neutral aggregator
 ## Output Format
 
 ### Intent
+
 > [The stated intent paragraph from Step 2]
 
 ### Reviewers
+
 - Reviewer [label]: [model name], [N findings] (one bullet per reviewer)
 
 ### Act On
+
 [Each: description, which models raised it, why it matters.]
 
 ### Consider
+
 [Each: description, which models raised it, the tradeoff.]
 
 ### Noted
+
 [Brief list.]
 
 ### Dismissed
+
 [Each with a brief rationale.]
 
 ### Agreement Map
+
 [Where models agreed and diverged, and what that pattern tells us.]

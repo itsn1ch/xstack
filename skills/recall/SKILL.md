@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Recall
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 **Before you start or resume work, you rebuild the user's recent working context and hand back a tight capsule of where things stand now and what to do next.**
 
 Keep it tight and on-topic. Read only what the in-scope threads need, then stop.

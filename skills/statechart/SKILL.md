@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Statechart
 
+**Setup gate.** Unless `XSTACK READY` is already in context this session, first run `sh <this file's directory>/../setup-xstack/scripts/check-setup.sh` from the project root. On `XSTACK SETUP MISSING`, or when the script is missing, stop. Show its output, tell the user to run `/setup-xstack`, and run no other step of this skill.
+
 The chart shows how a system moves between states, in the words of the person who reads it. The scripts call that person the reader, as in `readerActions` and reader steps. The reader decides whether the behavior is right. The reader can be a PM who reads a product flow, an engineer who reads a protocol or a service, or a reviewer who reads a design. Label each state with what the reader can observe or cares about, such as "Paying" in an app or "Lease held, write pending" in a lock service. Label each step with the event that moves the system, such as "tap Pay" in an app, "the request reads the count" in a service, or "the lease expires" in a lock service. Keep variable and action names out of labels.
 
 Run `node <skill dir>/scripts/statechart.mjs --help` for the commands and for how to read a chart. Work in a scratch folder outside the repo. The command writes its files next to its input. The first run installs TLC and Java with mise, which downloads about 305 MB and needs the network. The help's TLC section tells how to use a TLC and Java that you have.

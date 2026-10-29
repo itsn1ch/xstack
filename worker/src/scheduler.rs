@@ -276,15 +276,12 @@ fn run_job(job: &Job, slots: &Slots, cancel: &AtomicBool) -> CheckResult {
         slots: Some(slots),
         nice: true,
         cancel: Some(cancel),
-        slot: Some(job.slot),
+        slot: Some(job.slot.to_string()),
         ..RunOptions::new(job.timeout_ms)
     };
-    let spec = Spec::Shell(job.cmd.replace("{slot}", &job.slot.to_string()));
     // Results keep the configured command, so a lane's slot never splits one check's history or baseline.
-    let run = |spec: &Spec| CheckResult {
-        cmd: job.cmd.clone(),
-        ..run_command(&job.worktree, spec, &options)
-    };
+    let spec = Spec::Shell(job.cmd.clone());
+    let run = |spec: &Spec| run_command(&job.worktree, spec, &options);
     let stopped = |result: CheckResult| CheckResult {
         cancelled: true,
         ..result

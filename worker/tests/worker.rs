@@ -475,6 +475,75 @@ fn every_concurrent_job_gets_its_own_slot_without_changing_the_recorded_check() 
 }
 
 #[test]
+fn concurrent_commits_never_share_a_slot() {
+    let dir = make_repo();
+    let log = log_file();
+    let check = format!("echo $(git rev-parse HEAD) {{slot}} >> {}", log.display());
+    init_with(&dir, &[&check], |o| {
+        o.parallel = Some(2);
+        o.commits = Some(2);
+    });
+    scheduler::drain(&dir).unwrap();
+    let a = commit(&dir, "a.txt");
+    queue::enqueue(&dir, &a, false, false).unwrap();
+    let b = commit(&dir, "b.txt");
+    queue::enqueue(&dir, &b, false, false).unwrap();
+    scheduler::drain(&dir).unwrap();
+    let slots_of = |sha: &str| -> Vec<String> {
+        ran(&log)
+            .iter()
+            .filter_map(|line| line.strip_prefix(&format!("{sha} ")).map(str::to_string))
+            .collect()
+    };
+    let (in_a, in_b) = (slots_of(&a), slots_of(&b));
+    assert!(!in_a.is_empty() && !in_b.is_empty(), "{:?}", ran(&log));
+    assert!(
+        in_a.iter().all(|slot| !in_b.contains(slot)),
+        "{in_a:?} {in_b:?}"
+    );
+}
+
+#[test]
+fn foreground_runs_name_their_slots_apart_from_the_background() {
+    let dir = make_repo();
+    let out = dir.join("run.txt");
+    let status = Command::new(EXE)
+        .args(["run", "--check"])
+        .arg(format!(
+            "echo {{slot}} $XSTACK_WORKER_SLOT > {}",
+            out.display()
+        ))
+        .current_dir(&dir)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let words: Vec<String> = fs::read_to_string(&out)
+        .unwrap()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(words[0], words[1], "placeholder and env agree");
+    assert!(words[0].starts_with("run"), "{words:?}");
+
+    let log = log_file();
+    let check = format!("echo {{slot}} $XSTACK_WORKER_SLOT >> {}", log.display());
+    let result = run::fast(&dir, &[check.clone(), check], 60_000);
+    assert!(result.first_failed.is_none());
+    let mut slots: Vec<String> = ran(&log)
+        .iter()
+        .map(|line| {
+            let words: Vec<&str> = line.split(' ').collect();
+            assert_eq!(words[0], words[1], "placeholder and env agree: {line}");
+            assert!(words[0].starts_with("fast"), "{line}");
+            words[0].to_string()
+        })
+        .collect();
+    slots.sort();
+    slots.dedup();
+    assert_eq!(slots.len(), 2);
+}
+
+#[test]
 fn the_fast_gate_stops_at_the_first_failure_instead_of_waiting_for_the_slowest() {
     let started = Instant::now();
     let result = run::fast(

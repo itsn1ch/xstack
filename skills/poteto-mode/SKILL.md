@@ -146,7 +146,7 @@ Each round of the loop climbs these rungs.
 3. **Route around it.** Reach the same evidence another way. Use a fallback this skill already names (**Harness**, the foreground fallback in **Background verification**, direct work while `subtask` is cold), a different command or tool, a separate worktree, an isolated test database, a local fixture or fake, a provider's sandbox mode, or the source instead of missing docs.
 4. **Shrink it.** Split the step and finish the part that is not blocked. Settle an unknown with the Prototype playbook instead of waiting on it.
 
-Then check the blocker again. If it is fixed, return to the task. If not, log the round (the route and its result) in the decision trail and start the next round with a route you have not tried. Every round tries something new. Rerunning a failed command unchanged is spinning, not looping.
+Then check the blocker again. If it is fixed, return to the task. If not, log the round (the route and its result) in the decision trail, or in the todo list when there is no trail, and start the next round with a route you have not tried. When no untried route remains, treat the blocker as one only the human can clear and follow the paragraph below. Every round tries something new. Rerunning a failed command unchanged is spinning, not looping.
 
 While the loop runs, keep finishing every independent task. One blocked step never stops unrelated work. The final reply names each blocker, its error, and the route that cleared it.
 

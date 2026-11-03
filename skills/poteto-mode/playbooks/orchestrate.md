@@ -96,12 +96,12 @@ A unit is not done until its output is externalized the moment it lands, never b
 - Retry by mode: cap-hit or oom, respawn with smaller scope. Network-drop, retry as-is. Tool-error, retry on a different model. Unknown, retry once. Two retries, then abandon the unit and replan around it.
 - A zombie that returns hours late reconciles against the current frontier and ledger before anything is accepted. Salvage unique findings through a fresh unit, never a blind merge.
 - When continued spawning would produce garbage tree-wide (bad upstream output, broken acceptance, dead infra), write a stop line at the top of the standing orders, let in-flight work finish, fix the cause, clear it.
-- Bound your own infra retries the same way you bound a child's. After a few consecutive tool aborts, stop retrying the same call and take the other rungs of **When blocked** in `../SKILL.md`. Only when none works, write a terminal handoff to durable state (what is done, where it lives, the exact command to resume) and end the run.
+- Bound your own infra retries the same way you bound a child's. After a few consecutive tool aborts, stop retrying the same call and loop per **When blocked** in `../SKILL.md` with a new route each round. Only when the harness itself can no longer run tools, write a terminal handoff to durable state (what is done, where it lives, the exact command to resume) and end the run.
 - After a restart, check which agents and cloud work actually survive in the current harness. Re-read standing orders and recorded units, recompute the frontier, and reattach surviving work by PR and branch. Replace lost workers and resume. When using `orch`, its stale store lock clears on the next write if the holder pid is gone.
 
 #### Escalation
 
-Reaches the human, batched into the status page rather than per item: irreversible actions (force-push to shared branches, deploys, deletions, closing someone else's PR), genuine product or preference calls no experiment settles, a standing order that contradicts observed reality, a program-level dead end that survived a replan. Park each as a `gates.md` entry before asking, and route work around it.
+Reaches the human, batched into the status page rather than per item: irreversible actions (force-push to shared branches, deploys, deletions, closing someone else's PR), genuine product or preference calls no experiment settles, a standing order that contradicts observed reality, a program-level blocker that only the human can clear and that survived a replan. Park each as a `gates.md` entry before asking, and route work around it.
 
 Never reaches the human: frontier nudges, rebase mechanics, retries, CI flake triage, review-thread triage, format fixes, scope the brief already forbids (refuse and continue), and "should I keep going". When in doubt, act and log.
 

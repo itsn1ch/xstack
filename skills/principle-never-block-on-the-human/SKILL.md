@@ -15,4 +15,4 @@ The human supervises asynchronously. Agents must stay unblocked. Make reasonable
 - Irreversible actions (force-push, delete production data, send external messages) still require confirmation.
 - Reversible actions (write code, edit notes, split tasks) should proceed without blocking.
 - Product direction comes from the human. Execution should not block.
-- A blocker is not a question for the human. Find the way out first, per **When blocked** in `../poteto-mode/SKILL.md`. Ask only for what only the human holds, and keep working while you wait.
+- A blocker is not a question for the human. Loop on it until it is fixed, per **When blocked** in `../poteto-mode/SKILL.md`. Ask only for what only the human holds, and keep working while you wait.

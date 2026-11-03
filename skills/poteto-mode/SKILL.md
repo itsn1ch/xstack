@@ -42,7 +42,7 @@ Remaining triggers:
 - Asked to land or ship a green stack → the **Shipping** playbook (`playbooks/shipping.md`). Green is not safe. Nothing gets armed before an independent per-PR verdict, and only the contiguous verified run from the root lands.
 - Bugbot or the agentic security review commented → skeptical posture. They catch real bugs and also file non-issues and nitpicks, so assess each on its merits and dismiss noise with a concrete reason instead of churning code. Triage fix / dismiss / ask per `references/bugbot-triage.md`.
 - Broken skill mid-task → fix it in its own PR. Don't block. Don't silently work around it.
-- Blocked (a command fails, a tool or binary is missing, a permission is denied, a check won't run, a delegate reports blocked) → **When blocked** below. A blocker is the next problem to solve, not a place to stop. Mandatory, with no Laziness Protocol override.
+- Blocked (a command fails, a tool or binary is missing, a permission is denied, a check won't run, a delegate reports blocked) → **When blocked** below. Loop on it until it is fixed. A blocker is never a place to stop. Mandatory, with no Laziness Protocol override.
 - Long, autonomous, or multi-phase work, or any task the user steps away from to review later ("going to bed", "trust it when i'm back", "/loop until X") → a decision trail via the **show-me-your-work** skill. Commit it when stakes need an auditable record. Keep it local otherwise.
 
 ## Triage
@@ -137,18 +137,24 @@ These rules apply directly. They do not require a separate leaf skill, subagent,
 
 ## When blocked
 
-A blocker is the next task, not the end of the turn. Ending the turn at the first error, or reporting "blocked" without trying a way out, is a defect. Climb these rungs in order.
+A blocker is the next task, never the end of the turn. Ending the turn at an error, or marking a todo "blocked" and moving on, is a defect. Loop on the blocker until it is fixed.
 
-1. **Read the real error.** Read the full output, not a summary, and name the cause in one sentence before acting. Retry unchanged only for a transient cause (a network drop, a held lock, a flaky check), and only once.
+Each round of the loop climbs these rungs.
+
+1. **Read the real error.** Read the full output, not a summary, and name the cause in one sentence before acting. When you cannot name it yet, finding it is this round's work. Read the logs, the source, the config, and recent commits, reproduce it in a smaller case, or search the web for the exact error text. An unknown cause is never a reason to stop. Retry unchanged only for a transient cause (a network drop, a held lock, a flaky check), and only once.
 2. **Fix the cause in reach.** Build or install the missing tool in user space, create the missing directory, database, or env file, rebuild a stale binary, or correct a wrong path or config. When a rule in this skill forbids the fix (installing a formatter mid-task, installing dependencies only to format), take the next rung.
-3. **Route around it.** Reach the same evidence another way. Use a fallback this skill already names (**Harness**, the foreground fallback in **Background verification**, direct work while `subtask` is cold), a different command or tool, a separate worktree, a local fixture or fake, the source instead of missing docs, or a web search for the exact error text.
+3. **Route around it.** Reach the same evidence another way. Use a fallback this skill already names (**Harness**, the foreground fallback in **Background verification**, direct work while `subtask` is cold), a different command or tool, a separate worktree, an isolated test database, a local fixture or fake, a provider's sandbox mode, or the source instead of missing docs.
 4. **Shrink it.** Split the step and finish the part that is not blocked. Settle an unknown with the Prototype playbook instead of waiting on it.
-5. **Park it and keep going.** Record the blocker and its evidence as an open item. Then finish every independent task that remains. One blocked step never stops unrelated work.
-6. **Escalate last.** Ask the human only after rungs 1 to 4 failed with evidence, and only when the way out needs something only they hold: a secret or login, an irreversible action, a product call, or access you cannot get. Ask for one concrete action, such as a `! <command>` to run. Say what you tried, and keep working on the rest while you wait.
 
-Never pass a blocker by weakening a gate (skipping or deleting a test, `--no-verify`, loosening a check, claiming evidence you lack) or by taking an irreversible action. A tool call the user denied is not a blocker to route around. Do not attempt the same action through another tool. Continue with work that does not need it, or ask per rung 6. Never loop one failing command. After two failed tries on a rung, move to the next one.
+Then check the blocker again. If it is fixed, return to the task. If not, log the round (the route you tried and its result) and start the next round with a route you have not tried. Every round tries something new. Rerunning a failed command unchanged is spinning, not looping.
 
-Delegates climb the same rungs. A delegate that returns "blocked" without its tries and their evidence is not done. The root climbs the rungs for it, or gives a fresh agent the fix, per **No rework**.
+While the loop runs, keep finishing every independent task. One blocked step never stops unrelated work.
+
+The loop cannot produce what only the human holds: a secret or login, an irreversible action, a product call, or access you cannot get. Reach that point only after rungs 1 to 4 failed with evidence. Then ask for one concrete action, such as a `! <command>` to run, and say what you tried. Asking does not end the turn. Keep looping on every route that does not need the answer (a fake, a sandbox, a local fixture) and on every other task. End the turn only when nothing else is left to do, and list the open blocker with every route you tried.
+
+Never pass a blocker by weakening a gate (skipping or deleting a test, `--no-verify`, loosening a check, claiming evidence you lack) or by taking an irreversible action. A tool call the user denied is not a blocker to route around. Do not attempt the same action through another tool. Continue with work that does not need it, or ask for it as above.
+
+Delegates loop the same way. A delegate that returns "blocked" with a route still untried is not done. The root takes the loop over, or gives a fresh agent the remaining routes, per **No rework**.
 
 ## Subagents
 
@@ -156,7 +162,7 @@ Delegates climb the same rungs. A delegate that returns "blocked" without its tr
 
 **Every code delegate's brief names the three mandatory gates.** The TDD red step per behavior with the test command, the formatter's format command and the files in scope, and unslop for any prose it writes. The delegate reports the red output, the green output, and the formatter run. A report without them is not done.
 
-**Every code delegate's brief also carries the run setup.** The root's preflight result, so the delegate does not rediscover a missing tool or permission. The delegate's own test state, such as its worktree or its `TEST_TOKEN` and database name, per item 10 of **Tests and verification**. The ticket's done line, per **Widen in one batch**. The baseline's red checks, so the delegate does not chase them. The delegate stops at the done line and lists findings outside its slice in its report instead of fixing them. The root merges those lists into the widening queue. A blocker is not a done line. The delegate climbs **When blocked** first and reports each try with its evidence.
+**Every code delegate's brief also carries the run setup.** The root's preflight result, so the delegate does not rediscover a missing tool or permission. The delegate's own test state, such as its worktree or its `TEST_TOKEN` and database name, per item 10 of **Tests and verification**. The ticket's done line, per **Widen in one batch**. The baseline's red checks, so the delegate does not chase them. The delegate stops at the done line and lists findings outside its slice in its report instead of fixing them. The root merges those lists into the widening queue. A blocker is not a done line. The delegate loops per **When blocked** and reports each round with its evidence.
 
 **Defaults for every `Task` call.** `run_in_background: true`, agent mode (readonly strips MCP), file pointers not inlined context, explicit model per role (configurable via `/setup-xstack`. Defaults `grok-4.7-xhigh-fast` for code, `claude-opus-5-5-xhigh` for prose and judgment). Code delegates tier by difficulty. The hardest changes (cross-cutting design, gnarly concurrency, subtle algorithms) go to your strongest judgment model (`claude-opus-5-5-xhigh`), whether the task needs judgment on vague intent or is a precisely specified sequence of steps to execute to the letter. Handle trivial mechanical edits directly or in `subtask` batches, not with a subagent. Per-role lines in the `/setup-xstack` rule override these defaults and the model choices in the routed skills (`how`, `why`, `arena`, `swarm`, `to-tickets`, `interrogate`, `reflect`). A role with no line keeps its default, and a role line of `inherit-parent` or `auto` runs that role on the parent chat model (omit Task `model`). Each code playbook's configured model comes from its line (`feature, refactoring`, `bug-fix`, `perf-issue`, or `hillclimb`), and the hardest changes read `hardest tasks`. Prose and judgment read `judgment and prose`.
 

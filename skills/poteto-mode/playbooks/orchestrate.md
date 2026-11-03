@@ -96,7 +96,7 @@ A unit is not done until its output is externalized the moment it lands, never b
 - Retry by mode: cap-hit or oom, respawn with smaller scope. Network-drop, retry as-is. Tool-error, retry on a different model. Unknown, retry once. Two retries, then abandon the unit and replan around it.
 - A zombie that returns hours late reconciles against the current frontier and ledger before anything is accepted. Salvage unique findings through a fresh unit, never a blind merge.
 - When continued spawning would produce garbage tree-wide (bad upstream output, broken acceptance, dead infra), write a stop line at the top of the standing orders, let in-flight work finish, fix the cause, clear it.
-- Bound your own infra retries the same way you bound a child's. After a few consecutive tool aborts, stop retrying the same call and take the other rungs of **When blocked** in `../SKILL.md`. Only when none works, write a terminal handoff to durable state (what is done, where it lives, the exact command to resume) and end the run.
+- Bound your own infra retries the same way you bound a child's. After a few consecutive tool aborts, stop retrying the same call and loop per **When blocked** in `../SKILL.md` with a new route each round. Only when the harness itself can no longer run tools, write a terminal handoff to durable state (what is done, where it lives, the exact command to resume) and end the run.
 - After a restart, check which agents and cloud work actually survive in the current harness. Re-read standing orders and recorded units, recompute the frontier, and reattach surviving work by PR and branch. Replace lost workers and resume. When using `orch`, its stale store lock clears on the next write if the holder pid is gone.
 
 #### Escalation

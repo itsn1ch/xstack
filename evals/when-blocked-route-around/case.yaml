@@ -8,7 +8,7 @@ context:
 execution:
   max_turns: 40
   timeout_seconds: 900
-  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill]
+  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill, Agent]
   prompt: |
     /xstack:poteto-mode average() in stats.py crashes on an empty list. Make it return 0.0 for an empty list. Run the tests with `make test`.
 graders:
@@ -20,14 +20,12 @@ graders:
     name: empty-list-tested
     target: { source: file, path: tests/test_stats.py }
     pattern: 'average\(\s*\[\s*\]\s*\)'
-  - type: tool_used
-    name: routed-around-make
-    tool: Bash
-    input_match: "unittest"
-    min: 1
+  - type: llm
+    name: tests-actually-ran
+    criteria: The transcript shows a command that runs tests/test_stats.py and prints its result after the fix, either by repairing the make target (creating scripts/run-tests.sh) or by running the tests another way (such as python3 -m unittest or pytest).
   - type: llm
     name: did-not-stop-at-blocker
-    criteria: After `make test` fails because scripts/run-tests.sh is missing, the agent keeps going in the same turn, verifies the fix another way (such as python3 -m unittest), and finishes the task rather than ending the turn to ask the user.
+    criteria: After `make test` fails, the agent keeps going in the same turn, either fixes the cause or routes around it, verifies the fix, and finishes the task rather than ending the turn to ask the user.
   - type: llm
     name: blocker-reported-with-evidence
     criteria: The final reply names the broken `make test` target, the error it printed, and the route the agent used instead.

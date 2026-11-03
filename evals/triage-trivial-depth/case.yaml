@@ -25,3 +25,6 @@ graders:
   - type: llm
     name: mandatory-gates-still-run
     criteria: The transcript shows a test that fails on "Helo" before greeting.py is edited and passes after, so the TDD red and green steps were not skipped for speed.
+  - type: llm
+    name: judgment-in-background
+    criteria: After the fix reaches its done line, the agent spawns exactly one judgment subagent with run_in_background true, and does not call the work done before that judgment returns JUDGMENT PASS.

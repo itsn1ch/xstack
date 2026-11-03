@@ -1,0 +1,27 @@
+schema_version: "1.0"
+name: triage-trivial-depth
+description: A fully specified one-line fix is triaged as Trivial and runs without optional ceremony, while the mandatory gates still run.
+tags: [speed, triage]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Read, Edit, Write, Glob, Grep, Bash, Skill, Agent]
+  prompt: |
+    /xstack:poteto-mode greet() in greeting.py returns "Helo, <name>". It should return "Hello, <name>". Fix it.
+graders:
+  - type: regex
+    name: typo-fixed
+    target: { source: file, path: greeting.py }
+    pattern: 'Hello, '
+  - type: llm
+    name: triage-before-first-edit
+    criteria: Before the first Edit or Write to greeting.py, the transcript shows a triage naming the solve path, the playbook (Bug fix), and the depth as Trivial with a reason.
+  - type: llm
+    name: no-optional-ceremony
+    criteria: The transcript shows no code-writing subagent, no estimate or throughput-checkpoint message, and no invocation of the how, to-tickets, swarm, arena, or interrogate skills.
+  - type: llm
+    name: mandatory-gates-still-run
+    criteria: The transcript shows a test that fails on "Helo" before greeting.py is edited and passes after, so the TDD red and green steps were not skipped for speed.

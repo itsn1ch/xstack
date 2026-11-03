@@ -42,7 +42,7 @@ Remaining triggers:
 - Asked to land or ship a green stack → the **Shipping** playbook (`playbooks/shipping.md`). Green is not safe. Nothing gets armed before an independent per-PR verdict, and only the contiguous verified run from the root lands.
 - Bugbot or the agentic security review commented → skeptical posture. They catch real bugs and also file non-issues and nitpicks, so assess each on its merits and dismiss noise with a concrete reason instead of churning code. Triage fix / dismiss / ask per `references/bugbot-triage.md`.
 - Broken skill mid-task → fix it in its own PR. Don't block. Don't silently work around it.
-- Blocked (a command fails, a tool or binary is missing, a permission is denied, a check won't run, a delegate reports blocked) → **When blocked** below. Loop on it until it is fixed. A blocker is never a place to stop. Mandatory, with no Laziness Protocol override.
+- Blocked (a command fails, a tool or binary is missing, a permission is denied, a check won't run, a delegate reports blocked) → **When blocked** below. Loop on it until it is fixed, or until only the human can clear it. A blocker is never a place to stop. Mandatory, with no Laziness Protocol override.
 - Long, autonomous, or multi-phase work, or any task the user steps away from to review later ("going to bed", "trust it when i'm back", "/loop until X") → a decision trail via the **show-me-your-work** skill. Commit it when stakes need an auditable record. Keep it local otherwise.
 
 ## Triage
@@ -137,20 +137,22 @@ These rules apply directly. They do not require a separate leaf skill, subagent,
 
 ## When blocked
 
-A blocker is the next task, never the end of the turn. Ending the turn at an error, or marking a todo "blocked" and moving on, is a defect. Loop on the blocker until it is fixed.
+A blocker is the next task, never the end of the turn. Ending the turn at an error, or marking a todo "blocked" and dropping it, is a defect. Loop on the blocker until it is fixed, or until only the human can clear it.
 
 Each round of the loop climbs these rungs.
 
-1. **Read the real error.** Read the full output, not a summary, and name the cause in one sentence before acting. When you cannot name it yet, finding it is this round's work. Read the logs, the source, the config, and recent commits, reproduce it in a smaller case, or search the web for the exact error text. An unknown cause is never a reason to stop. Retry unchanged only for a transient cause (a network drop, a held lock, a flaky check), and only once.
+1. **Read the real error.** Read the full output, not a summary, and name the cause in one sentence before acting. When you cannot name it yet, finding it is this round's work. Read the logs, the source, the config, and recent commits, reproduce it in a smaller case, or search the web for the exact error text. An unknown cause is never a reason to stop. Retry unchanged only for a transient cause (a network drop, a held lock, a flaky check), and only once per blocker.
 2. **Fix the cause in reach.** Build or install the missing tool in user space, create the missing directory, database, or env file, rebuild a stale binary, or correct a wrong path or config. When a rule in this skill forbids the fix (installing a formatter mid-task, installing dependencies only to format), take the next rung.
 3. **Route around it.** Reach the same evidence another way. Use a fallback this skill already names (**Harness**, the foreground fallback in **Background verification**, direct work while `subtask` is cold), a different command or tool, a separate worktree, an isolated test database, a local fixture or fake, a provider's sandbox mode, or the source instead of missing docs.
 4. **Shrink it.** Split the step and finish the part that is not blocked. Settle an unknown with the Prototype playbook instead of waiting on it.
 
-Then check the blocker again. If it is fixed, return to the task. If not, log the round (the route you tried and its result) and start the next round with a route you have not tried. Every round tries something new. Rerunning a failed command unchanged is spinning, not looping.
+Then check the blocker again. If it is fixed, return to the task. If not, log the round (the route and its result) in the decision trail and start the next round with a route you have not tried. Every round tries something new. Rerunning a failed command unchanged is spinning, not looping.
 
-While the loop runs, keep finishing every independent task. One blocked step never stops unrelated work.
+While the loop runs, keep finishing every independent task. One blocked step never stops unrelated work. The final reply names each blocker, its error, and the route that cleared it.
 
-The loop cannot produce what only the human holds: a secret or login, an irreversible action, a product call, or access you cannot get. Reach that point only after rungs 1 to 4 failed with evidence. Then ask for one concrete action, such as a `! <command>` to run, and say what you tried. Asking does not end the turn. Keep looping on every route that does not need the answer (a fake, a sandbox, a local fixture) and on every other task. End the turn only when nothing else is left to do, and list the open blocker with every route you tried.
+A stop that a playbook defines (Babysit's rebase conflict, owner approval) is not a blocker. Report it per the playbook and keep looping on the other work.
+
+The loop cannot produce what only the human holds: a secret or login, an irreversible action, a product call, or access you cannot get. Reach that point only after rungs 1 to 4 failed with evidence. Then ask for one concrete action, such as a `! <command>` to run, and say what you tried. Asking does not end the turn. Keep looping on every route that does not need the answer (a fake, a sandbox, a local fixture) and on every other task. Routes are exhausted when every route that does not need the answer has been tried once with evidence. Then finish the other tasks and end the turn, listing the open blocker with every route you tried.
 
 Never pass a blocker by weakening a gate (skipping or deleting a test, `--no-verify`, loosening a check, claiming evidence you lack) or by taking an irreversible action. A tool call the user denied is not a blocker to route around. Do not attempt the same action through another tool. Continue with work that does not need it, or ask for it as above.
 

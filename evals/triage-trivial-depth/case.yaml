@@ -15,7 +15,7 @@ graders:
   - type: regex
     name: typo-fixed
     target: { source: file, path: greeting.py }
-    pattern: 'Hello, '
+    pattern: "Hello, "
   - type: llm
     name: triage-before-first-edit
     criteria: Before the first Edit or Write to greeting.py, the transcript shows a triage naming the solve path, the playbook (Bug fix), and the depth as Trivial with a reason.

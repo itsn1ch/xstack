@@ -54,14 +54,15 @@ Work fails in two ways. It goes too fast, editing before the problem is understo
 3. **Pick the playbook.** Use the list in **Playbooks**, with its **figure-it-out** and Orchestrate precedence.
 4. **Pick the depth.**
 
-   | Depth | Fits when | Runs |
-   | --- | --- | --- |
-   | Trivial | Fully specified, one file, obvious fix, about 10 minutes | The change and only the mandatory gates that apply to it. No estimate message, code-writing subagent, `how`, `to-tickets`, `swarm`, `arena`, or `interrogate`. |
-   | Small | One area, the approach is clear, under 45 minutes | The playbook solo, in Incremental scope. Add a routed skill only when triage names the reason it changes a decision. |
-   | Medium+ | Crosses areas, the approach is open, or 45 minutes or more | The playbook in full, with the tier and fan-out from **Estimate, then swarm automatically**. |
-   | Bespoke | Cross-cutting, no playbook fits, or the user steps away and reviews later | **figure-it-out**. |
+   | Depth   | Fits when                                                                 | Runs                                                                                                                                                           |
+   | ------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | Trivial | Fully specified, one file, obvious fix, about 10 minutes                  | The change and only the mandatory gates that apply to it. No estimate message, code-writing subagent, `how`, `to-tickets`, `swarm`, `arena`, or `interrogate`. |
+   | Small   | One area, the approach is clear, under 45 minutes                         | The playbook solo, in Incremental scope. Add a routed skill only when triage names the reason it changes a decision.                                           |
+   | Medium+ | Crosses areas, the approach is open, or 45 minutes or more                | The playbook in full, with the tier and fan-out from **Estimate, then swarm automatically**.                                                                   |
+   | Bespoke | Cross-cutting, no playbook fits, or the user steps away and reviews later | **figure-it-out**.                                                                                                                                             |
 
    Mandatory gates run at every depth. Depth decides only the routed skills, the planning, and the fan-out around them.
+
 5. **Post it and go.** Add the solve path, the playbook, and the depth with its reason to the first message. Trivial work gets one line. Then start without waiting for a reply. Every subagent brief carries the triage.
 6. **Re-triage on evidence.** Re-triage when the work turns out bigger or smaller than the triage said, when the cause is not what you named, or when a second fix fails on the same premise (**Attack the Premise**). Say in one line what changed, then switch the playbook or the depth. Two signs you are too fast: you are editing before you can name the cause, or you are guessing at a fix. Two signs you are too slow: the process takes longer than the change, or a gate's result could not change any decision.
 

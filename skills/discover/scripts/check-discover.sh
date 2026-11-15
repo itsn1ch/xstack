@@ -47,6 +47,8 @@ scan() {
 			else if ($0 ~ /^- commit: /) { reported[name] = 1; print f ":" NR ": commit must be a hex sha" }
 			else if ($0 ~ /^- date: [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && substr($0, 14, 2) + 0 >= 1 && substr($0, 14, 2) + 0 <= 12 && substr($0, 17, 2) + 0 >= 1 && substr($0, 17, 2) + 0 <= 31) header[name]++
 			else if ($0 ~ /^- date: /) { reported[name] = 1; print f ":" NR ": date must be YYYY-MM-DD" }
+			else if ($0 ~ /^[ \t]+- (topic|scope|commit|date):/) { reported[name] = 1; print f ":" NR ": " name " must start at the beginning of the line" }
+			else if ($0 ~ /^- (topic|scope|commit|date):/) { reported[name] = 1; print f ":" NR ": " name " needs a value after - " name ":" }
 			else print f ":" NR ": unknown header key " name " (use topic, scope, commit, date)"
 			next
 		}
@@ -82,7 +84,16 @@ scan() {
 			else print "EVIDENCE\t" NR "\t" refs
 			next
 		}
-		/^- (intent|reason|invariant|evidence):/ { name = key_name($0); print f ":" NR ": " name " needs a value after - " name ": "; next }
+		/^[ \t]*- (intent|reason|invariant|evidence):/ {
+			name = key_name($0)
+			if (name == "intent") intent++
+			else if (name == "reason") reason++
+			else if (name == "invariant") inv++
+			else ev++
+			if ($0 ~ /^[ \t]/) print f ":" NR ": " name " must start at the beginning of the line"
+			else print f ":" NR ": " name " needs a value after - " name ":"
+			next
+		}
 		/^[ \t]*- [^ :]+:/ { print f ":" NR ": unknown key " key_name($0) " (use intent, reason, invariant, evidence at the start of the line)"; next }
 		{ print f ":" NR ": unexpected line in entry " key " (each line is - intent:, - reason:, - invariant:, or - evidence:)" }
 		END {
@@ -145,16 +156,16 @@ check_sources() {
 		case "$ref" in
 		'PR #'*)
 			if ! command -v "$gh" >/dev/null 2>&1; then
-				echo "$file:$line: source $ref needs gh to check its quote"
+				printf '%s\n' "$file:$line: source $ref needs gh to check its quote"
 			elif ! "$gh" pr view "${ref#PR #}" --json title,body -q '.title + "\n" + .body' 2>/dev/null | grep -qF -- "$quote"; then
-				echo "$file:$line: source $ref does not contain \"$quote\""
+				printf '%s\n' "$file:$line: source $ref does not contain \"$quote\""
 			fi
 			;;
 		*:*)
 			path=${ref%:*}
 			number=${ref##*:}
 			if check_ref source "$file:$line" "$path" "$number" && ! sed -n "${number}p" "$root/$path" | grep -qF -- "$quote"; then
-				echo "$file:$line: source $ref does not contain \"$quote\""
+				printf '%s\n' "$file:$line: source $ref does not contain \"$quote\""
 			fi
 			;;
 		'' | *[!0-9a-f]*)
@@ -164,7 +175,7 @@ check_sources() {
 			if ! git -C "$root" cat-file -e "$ref^{commit}" 2>/dev/null; then
 				echo "$file:$line: source $ref is not a commit in $root"
 			elif ! git -C "$root" log -1 --format=%B "$ref^{commit}" | grep -qF -- "$quote"; then
-				echo "$file:$line: commit $ref message does not contain \"$quote\""
+				printf '%s\n' "$file:$line: commit $ref message does not contain \"$quote\""
 			fi
 			;;
 		esac

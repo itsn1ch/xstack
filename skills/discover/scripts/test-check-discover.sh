@@ -72,7 +72,7 @@ expect_ok "the valid file" cat
 expect_ok "last line without a newline" sed -e 's/^- evidence: src\/lock.rs:3$/- evidence: src\/lock.rs:3, src\/tail.txt:2/'
 expect_reject "hyphenated stray key" "unknown key see-also" awk '{ print } END { print "- see-also: x" }'
 expect_reject "capitalized stray key" "unknown key Notes" awk '{ print } END { print "- Notes: x" }'
-expect_reject "indented key" "unknown key" sed -e 's/^- invariant: A crashed/  &/'
+expect_reject "indented key" "invariant must start at the beginning of the line" sed -e 's/^- invariant: A crashed/  &/'
 expect_reject "missing topic" "header needs - topic" sed -e '/^- topic:/d'
 expect_reject "missing scope" "header needs - scope" sed -e '/^- scope:/d'
 expect_reject "missing date" "header needs - date" sed -e '/^- date:/d'
@@ -105,6 +105,10 @@ expect_reject "intent without a space" "intent needs a value" sed -e 's/^- inten
 expect_reject "header commit not in the repo" "commit ffffffff is not a commit" sed -e 's/^- commit: .*/- commit: ffffffff/'
 expect_reject "impossible date" "date must be YYYY-MM-DD" sed -e 's/^- date: .*/- date: 2026-13-45/'
 expect_reject "ref with two colons" "is not a line in a file" sed -e 's/src\/lock.rs:1,/src\/lock.rs:1:3,/'
+expect_reject "empty topic" "topic needs a value" sed -e 's/^- topic: .*/- topic: /'
+expect_reject "topic without a space" "topic needs a value" sed -e 's/^- topic: /- topic:/'
+expect_reject "indented header key" "topic must start at the beginning of the line" sed -e 's/^- topic:/  - topic:/'
+expect_reject "backslash in a quote" 'does not contain "a\\c made up words"' sed -e 's/"two runs on one machine would share"/"a\\c made up words"/'
 expect_reject "missing source" "reason must end with" sed -e 's/ (source: PR #7 "lock file per run keeps runs apart")//'
 
 if out=$(GH="$tmp/no-gh" sh "$here/check-discover.sh" "$tmp/good.md" "$repo" 2>&1); then

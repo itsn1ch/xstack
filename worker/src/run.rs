@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
@@ -46,7 +46,8 @@ pub struct RunOptions<'a> {
     pub nice: bool,
     pub inherit: bool,
     pub cancel: Option<&'a AtomicBool>,
-    pub pgid: Option<&'a AtomicI32>,
+    /// Holds the running command's pid, and 0 once it exits. Kill it only while holding the lock.
+    pub pgid: Option<&'a Mutex<i32>>,
     /// Replaces `{slot}` and is exported as `XSTACK_WORKER_SLOT`, so concurrent checks keep separate state.
     /// Without one, a run that takes a slot lock is named `run<lock>`, apart from the background's numbers.
     pub slot: Option<String>,
@@ -194,7 +195,7 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     };
     let pgid = child.id() as i32;
     if let Some(slot) = options.pgid {
-        slot.store(pgid, SeqCst);
+        *slot.lock().expect("job pid") = pgid;
     }
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let readers: Vec<_> = [
@@ -206,8 +207,11 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     .collect();
 
     let (exited, exit_status) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
     let waiter = thread::spawn(move || {
         let _ = exited.send(child.wait());
+        // The open process handle keeps Windows from reusing the pid until the caller has cleared it.
+        let _ = released.recv();
     });
 
     let timeout = Duration::from_millis(options.timeout_ms);
@@ -227,6 +231,10 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
             Err(RecvTimeoutError::Disconnected) => break None,
         }
     };
+    if let Some(slot) = options.pgid {
+        *slot.lock().expect("job pid") = 0;
+    }
+    drop(release);
     let _ = waiter.join();
     for reader in readers {
         let _ = reader.join();
@@ -292,7 +300,7 @@ pub fn run_all(
 ) -> RunAll {
     let started = Instant::now();
     let cancel = AtomicBool::new(false);
-    let pgids: Vec<AtomicI32> = jobs.iter().map(|_| AtomicI32::new(0)).collect();
+    let pgids: Vec<Mutex<i32>> = jobs.iter().map(|_| Mutex::new(0)).collect();
     let first_failed = Mutex::new(None);
     let indices: Vec<usize> = (0..jobs.len()).collect();
     let results = pool(&indices, limit, |&i| {
@@ -312,7 +320,7 @@ pub fn run_all(
                     *first_failed.lock().expect("first failure") = Some(i);
                     for (j, pgid) in pgids.iter().enumerate() {
                         if j != i {
-                            kill_group(pgid.load(SeqCst));
+                            kill_group(*pgid.lock().expect("job pid"));
                         }
                     }
                 }

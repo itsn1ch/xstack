@@ -37,28 +37,9 @@ pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
     if abi < 3 {
         return Err("skill mode requires Linux Landlock ABI 3 or newer".into());
     }
-    let temp = fs::canonicalize(std::env::temp_dir())
-        .map_err(|e| format!("cannot resolve temporary directory: {e}"))?;
     let workspace_path =
         fs::canonicalize(".").map_err(|e| format!("cannot resolve workspace: {e}"))?;
-    let share = temp.join(format!("xstack-share-{}", unsafe { libc::getuid() }));
-    if share.starts_with(&workspace_path) || workspace_path.starts_with(&share) {
-        return Err("shared resource directory must be outside the workspace".into());
-    }
-    match fs::DirBuilder::new().mode(0o700).create(&share) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(format!("cannot prepare shared resource directory: {e}")),
-    }
-    let share = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&share)
-        .map_err(|e| format!("cannot open shared resource directory: {e}"))?;
-    let meta = share.metadata().map_err(|e| e.to_string())?;
-    if meta.uid() != unsafe { libc::getuid() } || meta.mode() & 0o022 != 0 {
-        return Err("unsafe shared resource directory permissions".into());
-    }
+    let share = open_share(&workspace_path)?;
     let proc = File::open(Path::new("/proc")).map_err(|e| e.to_string())?;
     let rules = Ruleset {
         handled_access_fs: ALL,
@@ -120,7 +101,7 @@ pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
 
 /// Creates (or reuses) the per-user shared resource directory outside the workspace and opens it
 /// without following symlinks, refusing it unless this user owns it and no one else can write it.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn open_share(workspace_path: &Path) -> Result<File> {
     let temp = fs::canonicalize(std::env::temp_dir())
         .map_err(|e| format!("cannot resolve temporary directory: {e}"))?;

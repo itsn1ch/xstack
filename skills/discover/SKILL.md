@@ -26,7 +26,7 @@ The file is `docs/discover/<topic>.md` in the project root, where `<topic>` is t
 
 - intent: Limit how many test commands run at once across every worker process on the machine.
 - reason: Worker processes share no memory, so a lock file is their only shared counter. (source: inferred)
-- invariant: A command keeps its slot until it exits. (guard: a_busy_slot_held_by_another_process_makes_the_background_check_wait worker/tests/worker.rs:597)
+- invariant: A background check waits while another process holds its slot. (guard: a_busy_slot_held_by_another_process_makes_the_background_check_wait worker/tests/worker.rs:614)
 - invariant: Foreground and background runs of one repository take slots from the same lock files. (guard: unguarded)
 - evidence: worker/src/run.rs:81, worker/src/queue.rs:204, worker/src/queue.rs:214
 ```
@@ -48,7 +48,7 @@ The header lines are `topic`, `scope` (the paths read), `commit` (`git rev-parse
 3. **Find each reason's source.** Check, in order, comments and docs near the code, `git log -L <start>,<end>:<path>` or `git log --follow -- <path>` for the commit that introduced it, and the PR named in that commit (`gh pr view <n>` when available). Cite the first source whose words say why, and copy those words into the quote. A comment that says what the code does or what it is for states the intent, not the reason, so it is not a source. When no source says why, write the reason you infer and tag it `(source: inferred)`. Run `/why` when the user wants a reason confirmed beyond that.
 4. **Test each invariant.** An invariant is a property whose violation breaks a caller. Ask what breaks if it stops being true. If nothing a caller sees breaks, it is a detail, so drop it. Write one property per line. Search the tests for one that fails when the property breaks. Read its body, and cite it only when one of its assertions checks the property: the guard is the test name and the `path:line` of that assertion. A test whose name sounds right but whose assertions check something else is not a guard. Without one, write `(guard: unguarded)`.
 5. **Write the file.** Create `docs/discover/` when it is missing. When the file already exists, keep entries whose keys you did not rediscover, replace entries you did, and update `commit` and `date`. Delete an entry whose evidence no longer exists.
-6. **Validate.** Run `sh <this file's directory>/scripts/check-discover.sh docs/discover/<topic>.md` from the project root. It checks the header, the key set and counts, that each guard's name appears in its file, that every evidence `path:line` exists, and that each source's quote appears on its line or in its commit message. Fix every line it prints and rerun it until it prints `DISCOVER OK`.
+6. **Validate.** Run `sh <this file's directory>/scripts/check-discover.sh docs/discover/<topic>.md` from the project root. It checks that the header has `topic`, `scope`, `commit`, and `date` once each, that every `- ` line in an entry is one of the four keys at the start of the line, that each guard's name appears in its file, that every evidence and guard `path:line` exists, and that each source's quote has at least three words and appears on its line, in its commit message, or in its PR through `gh`. A `PR #<n>` source fails without `gh`, so cite the commit instead when `gh` is unavailable. Fix every line it prints and rerun it until it prints `DISCOVER OK`.
 
 ## Reply
 

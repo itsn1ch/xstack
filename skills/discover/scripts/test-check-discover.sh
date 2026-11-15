@@ -100,6 +100,8 @@ expect_reject "star header line" "unexpected line in the header" awk '{ print } 
 expect_reject "bare header line" "unexpected line in the header" awk '{ print } /^- date:/ { print "author: me" }'
 expect_reject "heading without a space" "unexpected line in the header" awk '{ print } /^- date:/ { print "##stray" }'
 expect_reject "empty evidence" "evidence needs at least one path:line" sed -e 's/^- evidence: src\/lock.rs:3$/- evidence: , ,/'
+expect_reject "evidence of commas and a tab" "evidence needs at least one path:line" awk '{ if ($0 == "- evidence: src/lock.rs:3") print "- evidence: ,\t"; else print }'
+expect_reject "two-word quote with a leading space" "quote needs at least three words" sed -e 's/"lock file per run keeps runs apart"/" keeps runs"/'
 expect_reject "empty intent" "intent needs a value" sed -e 's/^- intent: Give a slot back.*/- intent: /'
 expect_reject "intent without a space" "intent needs a value" sed -e 's/^- intent: Give/- intent:Give/'
 expect_reject "header commit not in the repo" "commit ffffffff is not a commit" sed -e 's/^- commit: .*/- commit: ffffffff/'

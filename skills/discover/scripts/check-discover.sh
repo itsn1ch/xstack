@@ -62,7 +62,8 @@ scan() {
 				src = substr($0, RSTART + 9, RLENGTH - 10)
 				ref = src; sub(/ "[^"]*"$/, "", ref)
 				quote = src; sub(/^[^"]*"/, "", quote); sub(/"$/, "", quote)
-				if (split(quote, words, /[ \t]+/) < 3) print f ":" NR ": source quote needs at least three words"
+				n = 0; c = split(quote, words, /[ \t]+/); for (j = 1; j <= c; j++) if (words[j] != "") n++
+				if (n < 3) print f ":" NR ": source quote needs at least three words"
 				else print "SOURCE\t" NR "\t" ref "\t" quote
 			} else {
 				print f ":" NR ": reason must end with (source: inferred) or (source: <path:line, commit sha, or PR #n> \"<words quoted from it>\")"
@@ -81,7 +82,7 @@ scan() {
 			ev++
 			refs = substr($0, 13)
 			bare = refs
-			gsub(/[ ,]/, "", bare)
+			gsub(/[ \t,]/, "", bare)
 			if (bare == "") print f ":" NR ": evidence needs at least one path:line"
 			else print "EVIDENCE\t" NR "\t" refs
 			next

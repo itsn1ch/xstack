@@ -96,6 +96,15 @@ expect_reject "path outside the repo" "outside the repository" sed -e 's/src\/lo
 expect_reject "absolute path" "outside the repository" sed -e 's/src\/lock.rs:1,/\/etc\/hosts:1,/'
 expect_reject "bad date" "date must be YYYY-MM-DD" sed -e 's/^- date: .*/- date: whenever/'
 expect_reject "CRLF line endings" "CRLF" awk '{ printf "%s\r\n", $0 }'
+expect_reject "star header line" "unexpected line in the header" awk '{ print } /^- date:/ { print "* author: me" }'
+expect_reject "bare header line" "unexpected line in the header" awk '{ print } /^- date:/ { print "author: me" }'
+expect_reject "heading without a space" "unexpected line in the header" awk '{ print } /^- date:/ { print "##stray" }'
+expect_reject "empty evidence" "evidence needs at least one path:line" sed -e 's/^- evidence: src\/lock.rs:3$/- evidence: , ,/'
+expect_reject "empty intent" "intent needs a value" sed -e 's/^- intent: Give a slot back.*/- intent: /'
+expect_reject "intent without a space" "intent needs a value" sed -e 's/^- intent: Give/- intent:Give/'
+expect_reject "header commit not in the repo" "commit ffffffff is not a commit" sed -e 's/^- commit: .*/- commit: ffffffff/'
+expect_reject "impossible date" "date must be YYYY-MM-DD" sed -e 's/^- date: .*/- date: 2026-13-45/'
+expect_reject "ref with two colons" "is not a line in a file" sed -e 's/src\/lock.rs:1,/src\/lock.rs:1:3,/'
 expect_reject "missing source" "reason must end with" sed -e 's/ (source: PR #7 "lock file per run keeps runs apart")//'
 
 if out=$(GH="$tmp/no-gh" sh "$here/check-discover.sh" "$tmp/good.md" "$repo" 2>&1); then

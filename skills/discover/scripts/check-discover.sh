@@ -39,15 +39,18 @@ scan() {
 			seen[key] = NR
 			next
 		}
+		/^[ \t]*$/ { next }
 		key == "" && /^[ \t]*- / {
 			name = key_name($0)
-			if ($0 ~ /^- (topic|scope): ./ || $0 ~ /^- commit: [0-9a-f]+$/ || $0 ~ /^- date: [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) header[name]++
-			else if ($0 ~ /^- commit: /) print f ":" NR ": commit must be a hex sha"
-			else if ($0 ~ /^- date: /) print f ":" NR ": date must be YYYY-MM-DD"
+			if ($0 ~ /^- (topic|scope): ./) header[name]++
+			else if ($0 ~ /^- commit: [0-9a-f]+$/) { header[name]++; print "COMMIT\t" NR "\t" substr($0, 11) }
+			else if ($0 ~ /^- commit: /) { reported[name] = 1; print f ":" NR ": commit must be a hex sha" }
+			else if ($0 ~ /^- date: [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && substr($0, 14, 2) + 0 >= 1 && substr($0, 14, 2) + 0 <= 12 && substr($0, 17, 2) + 0 >= 1 && substr($0, 17, 2) + 0 <= 31) header[name]++
+			else if ($0 ~ /^- date: /) { reported[name] = 1; print f ":" NR ": date must be YYYY-MM-DD" }
 			else print f ":" NR ": unknown header key " name " (use topic, scope, commit, date)"
 			next
 		}
-		key == "" || /^[ \t]*$/ { next }
+		key == "" { print f ":" NR ": unexpected line in the header (use - topic:, - scope:, - commit:, - date:, then ## entries)"; next }
 		/^- intent: ./ { intent++; next }
 		/^- reason: ./ {
 			reason++
@@ -70,13 +73,22 @@ scan() {
 			else print f ":" NR ": invariant must end with (guard: unguarded) or (guard: <test, assert, or type name> <path:line>)"
 			next
 		}
-		/^- evidence: ./ { ev++; print "EVIDENCE\t" NR "\t" substr($0, 13); next }
+		/^- evidence: ./ {
+			ev++
+			refs = substr($0, 13)
+			bare = refs
+			gsub(/[ ,]/, "", bare)
+			if (bare == "") print f ":" NR ": evidence needs at least one path:line"
+			else print "EVIDENCE\t" NR "\t" refs
+			next
+		}
+		/^- (intent|reason|invariant|evidence):/ { name = key_name($0); print f ":" NR ": " name " needs a value after - " name ": "; next }
 		/^[ \t]*- [^ :]+:/ { print f ":" NR ": unknown key " key_name($0) " (use intent, reason, invariant, evidence at the start of the line)"; next }
 		{ print f ":" NR ": unexpected line in entry " key " (each line is - intent:, - reason:, - invariant:, or - evidence:)" }
 		END {
 			close_entry()
 			split("topic scope commit date", wanted, " ")
-			for (i = 1; i <= 4; i++) if (header[wanted[i]] != 1) print f ": header needs - " wanted[i] ": line exactly once"
+			for (i = 1; i <= 4; i++) if (header[wanted[i]] != 1 && !reported[wanted[i]]) print f ": header needs - " wanted[i] ": line exactly once"
 			if (!start) print f ": no ## entries"
 			n = 0
 			for (k in seen) n++
@@ -97,6 +109,10 @@ check_ref() {
 		;;
 	esac
 	case "$ref_path" in
+	*:*)
+		echo "$at: $kind $ref_path:$ref_line is not a line in a file"
+		return 1
+		;;
 	/* | .. | ../* | */../* | */..)
 		echo "$at: $kind $ref_path:$ref_line is outside the repository"
 		return 1
@@ -155,6 +171,13 @@ check_sources() {
 	done
 }
 
+check_commits() {
+	while IFS=$tab read -r line sha; do
+		git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null ||
+			echo "$file:$line: commit $sha is not a commit in $root"
+	done
+}
+
 check_guards() {
 	while IFS=$tab read -r line guard; do
 		name=${guard% *}
@@ -171,12 +194,13 @@ rows() {
 }
 
 out=$(scan)
-problems=$(printf '%s\n' "$out" | grep -v -e '^EVIDENCE	' -e '^SOURCE	' -e '^GUARD	' -e '^ENTRIES	')
+problems=$(printf '%s\n' "$out" | grep -v -e "^EVIDENCE$tab" -e "^SOURCE$tab" -e "^GUARD$tab" -e "^COMMIT$tab" -e "^ENTRIES$tab")
 all=$(
 	printf '%s\n' "$problems"
 	rows EVIDENCE | check_evidence
 	rows SOURCE | check_sources
 	rows GUARD | check_guards
+	rows COMMIT | check_commits
 )
 all=$(printf '%s\n' "$all" | sed '/^$/d')
 if [ -n "$all" ]; then

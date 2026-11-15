@@ -56,7 +56,7 @@ In context, that's enough. [`/tdd`](../../skills/tdd/SKILL.md) writes the smalle
 
 ## Pull out UI components with `/to-components`
 
-[`/to-components`](../../skills/to-components/SKILL.md) extracts reusable UI components from an existing app in any framework. It learns the project's folders and naming from the code, reuses components that already exist, and keeps a component used by one screen next to that screen. It renders every affected screen before and after the change, and the diff must be empty. Its report lists what it extracted, what it reused, and what it chose not to extract and why.
+[`/to-components`](../../skills/to-components/SKILL.md) extracts reusable UI components from an existing app in any framework. It learns the project's folders and naming from the code, reuses components that already exist, and keeps a component rendered from only one parent next to that parent. It renders every affected screen before and after the change, and the diff must be empty or hold only differences you approved. Its report lists what it extracted, what it reused, and what it chose not to extract and why.
 
 ## Clean before you commit
 

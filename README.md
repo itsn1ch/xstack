@@ -310,6 +310,7 @@ The worker has no tiers. The Easy, Medium, and High tiers in `poteto-mode` estim
 - [`how`](skills/how/SKILL.md): explain how a subsystem works and where code belongs.
 - [`why`](skills/why/SKILL.md): find the cited reasons behind a decision or regression.
 - [`teach`](skills/teach/SKILL.md): combine `how` and `why` into one plain explanation.
+- [`discover`](skills/discover/SKILL.md): record each unit's intent, reason, and invariants as checked key-value entries in `docs/discover/<topic>.md`.
 - [`bro`](skills/bro/SKILL.md): restate the last message without jargon.
 - [`in-your-own-words`](skills/in-your-own-words/SKILL.md): restate the user's goal and problem.
 

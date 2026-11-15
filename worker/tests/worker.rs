@@ -953,3 +953,39 @@ fn probe_reports_the_power_and_the_burst() {
         text(&out)
     );
 }
+
+#[test]
+fn a_finished_command_clears_its_pid_so_fail_fast_cannot_kill_a_reused_one() {
+    let pid = std::sync::Mutex::new(0);
+    let seen = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while seen.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+                let current = *pid.lock().unwrap();
+                seen.store(current.max(0) as usize, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let options = run::RunOptions {
+            pgid: Some(&pid),
+            ..run::RunOptions::new(60_000)
+        };
+        let result = run::run_command(
+            &std::env::temp_dir(),
+            &run::Spec::Shell("sleep 0.3".into()),
+            &options,
+        );
+        assert_eq!(result.exit, 0, "{}", result.output);
+    });
+    assert_ne!(
+        seen.load(Ordering::SeqCst),
+        0,
+        "the running pid was never published"
+    );
+    assert_eq!(
+        *pid.lock().unwrap(),
+        0,
+        "a finished command left its pid behind"
+    );
+}

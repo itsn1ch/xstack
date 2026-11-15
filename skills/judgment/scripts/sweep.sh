@@ -1,14 +1,10 @@
 #!/bin/sh
-# Prints one `file:line: problem` per spacing or leftover problem in the text files given as arguments.
-# Exits 1 when it printed anything, so a `subtask` summary lists the guilty batches first.
 found=0
 for f in "$@"; do
   [ -f "$f" ] || continue
   [ -s "$f" ] || continue
   grep -Iq . "$f" || continue
-  # PEP 8 wants two blank lines between top-level definitions.
   case "$f" in *.py | *.pyi) blanks=3 ;; *) blanks=2 ;; esac
-  # Blank-line rules belong to the embedded language inside shell heredocs and Markdown fences.
   case "$f" in *.sh | *.bash | *.zsh) embed=heredoc ;; *.md | *.markdown) embed=fence ;; *) embed=none ;; esac
   out=$(awk -v f="$f" -v max="$blanks" -v embed="$embed" '
     /\r$/ { print f ":" NR ": CRLF line ending" }

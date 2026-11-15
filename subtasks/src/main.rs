@@ -30,8 +30,17 @@ use xstack_subtasks::engine::{self, Http, SubOptions, Task, Widths};
 use xstack_subtasks::Result;
 use xstack_worker::probe::Meter;
 use xstack_worker::share::{Kind, Share};
+#[cfg(unix)]
 mod skill;
+#[cfg(unix)]
 mod skill_sandbox;
+
+#[cfg(not(unix))]
+mod skill {
+    pub fn run(_: &[String]) -> xstack_subtasks::Result<u8> {
+        Err("skill mode requires Linux Landlock or macOS Seatbelt".into())
+    }
+}
 
 #[derive(Default)]
 struct Args {

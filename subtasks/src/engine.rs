@@ -185,6 +185,7 @@ pub fn widths(power: &Power, runs: Runs, ours_cpu: usize, sh_mem_mb: u64, nofile
 }
 
 /// Raises the soft descriptor limit to the hard one and returns the new soft limit.
+#[cfg(unix)]
 pub fn raise_nofile() -> u64 {
     // SAFETY: getrlimit and setrlimit only read and write the struct passed to them.
     unsafe {
@@ -203,6 +204,11 @@ pub fn raise_nofile() -> u64 {
         }
         limit.rlim_cur as u64
     }
+}
+
+#[cfg(windows)]
+pub fn raise_nofile() -> u64 {
+    8192
 }
 
 pub struct SubOptions {
@@ -1101,12 +1107,13 @@ fn browser_connection_settings(cwd: &Path) -> std::result::Result<(), String> {
     let paths = if let Some(path) = std::env::var_os("AGENT_BROWSER_CONFIG") {
         vec![PathBuf::from(path)]
     } else {
-        let home = std::env::var_os("HOME")
-            .filter(|home| !home.is_empty())
+        let home = std::env::home_dir()
+            .filter(|home| !home.as_os_str().is_empty())
             .ok_or_else(|| {
-                "cannot inspect agent-browser user configuration without HOME".to_string()
+                "cannot inspect agent-browser user configuration without a home directory"
+                    .to_string()
             })?;
-        let mut paths = vec![PathBuf::from(home).join(".agent-browser/config.json")];
+        let mut paths = vec![home.join(".agent-browser/config.json")];
         paths.push(cwd.join("agent-browser.json"));
         paths
     };
@@ -1175,8 +1182,14 @@ async fn shell(mut command: tokio::process::Command, ctx: &Ctx) -> Done {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
         .kill_on_drop(true);
+    xstack_worker::os::configure(
+        command.as_std_mut(),
+        xstack_worker::os::Spawn {
+            own_group: true,
+            ..Default::default()
+        },
+    );
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => return (false, 127, format!("cannot start: {e}")),

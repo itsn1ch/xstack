@@ -8,7 +8,6 @@ use crate::state::{
 use crate::Result;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::sleep;
@@ -185,13 +184,13 @@ pub fn start_worker(repo: &Path, exe: &Path) -> Result<bool> {
             .stdin(Stdio::null())
             .stdout(log)
             .stderr(log_err);
-        // SAFETY: setsid detaches the worker from this terminal's session so it outlives the caller.
-        unsafe {
-            command.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
+        crate::os::configure(
+            &mut command,
+            crate::os::Spawn {
+                detached: true,
+                ..Default::default()
+            },
+        );
         let child = command
             .spawn()
             .map_err(|e| format!("cannot start worker: {e}"))?;

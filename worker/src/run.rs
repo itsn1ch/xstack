@@ -3,11 +3,9 @@
 use crate::state::CheckResult;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
-use std::os::fd::AsRawFd;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
@@ -48,7 +46,7 @@ pub struct RunOptions<'a> {
     pub nice: bool,
     pub inherit: bool,
     pub cancel: Option<&'a AtomicBool>,
-    pub pgid: Option<&'a AtomicI32>,
+    pub pgid: Option<&'a Mutex<i32>>,
     /// Replaces `{slot}` and is exported as `XSTACK_WORKER_SLOT`, so concurrent checks keep separate state.
     /// Without one, a run that takes a slot lock is named `run<lock>`, apart from the background's numbers.
     pub slot: Option<String>,
@@ -75,12 +73,7 @@ pub fn cores() -> usize {
 }
 
 pub fn kill_group(pgid: i32) {
-    if pgid > 0 {
-        // SAFETY: a negative pid targets the process group this tool created for one command.
-        unsafe {
-            libc::kill(-pgid, libc::SIGKILL);
-        }
-    }
+    crate::os::kill_tree(pgid);
 }
 
 /// Blocks until one slot is free and returns its number and locked file; the lock is released when the file drops.
@@ -100,10 +93,7 @@ fn acquire_slot(slots: &Slots) -> Option<(usize, File)> {
         .collect::<Option<Vec<File>>>()?;
     let mut delay = SLOT_RETRY_MIN;
     loop {
-        // SAFETY: flock on descriptors this function owns.
-        let free = files.iter().position(
-            |file| unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-        );
+        let free = files.iter().position(|file| file.try_lock().is_ok());
         if let Some(i) = free {
             return Some((slots.order[i], files.swap_remove(i)));
         }
@@ -166,21 +156,17 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
             c
         }
     };
-    command
-        .current_dir(cwd)
-        .env("XSTACK_WORKER", "1")
-        .process_group(0);
+    command.current_dir(cwd).env("XSTACK_WORKER", "1");
+    crate::os::configure(
+        &mut command,
+        crate::os::Spawn {
+            own_group: true,
+            low_priority: options.nice,
+            detached: false,
+        },
+    );
     if let Some(slot) = &slot {
         command.env("XSTACK_WORKER_SLOT", slot);
-    }
-    if options.nice {
-        // SAFETY: setpriority is async-signal-safe and only lowers this child's own priority.
-        unsafe {
-            command.pre_exec(|| {
-                libc::setpriority(libc::PRIO_PROCESS, 0, 10);
-                Ok(())
-            });
-        }
     }
     if options.inherit {
         command
@@ -208,7 +194,7 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     };
     let pgid = child.id() as i32;
     if let Some(slot) = options.pgid {
-        slot.store(pgid, SeqCst);
+        *slot.lock().expect("job pid") = pgid;
     }
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let readers: Vec<_> = [
@@ -220,8 +206,10 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     .collect();
 
     let (exited, exit_status) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
     let waiter = thread::spawn(move || {
         let _ = exited.send(child.wait());
+        let _ = released.recv();
     });
 
     let timeout = Duration::from_millis(options.timeout_ms);
@@ -241,6 +229,10 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
             Err(RecvTimeoutError::Disconnected) => break None,
         }
     };
+    if let Some(slot) = options.pgid {
+        *slot.lock().expect("job pid") = 0;
+    }
+    drop(release);
     let _ = waiter.join();
     for reader in readers {
         let _ = reader.join();
@@ -306,7 +298,7 @@ pub fn run_all(
 ) -> RunAll {
     let started = Instant::now();
     let cancel = AtomicBool::new(false);
-    let pgids: Vec<AtomicI32> = jobs.iter().map(|_| AtomicI32::new(0)).collect();
+    let pgids: Vec<Mutex<i32>> = jobs.iter().map(|_| Mutex::new(0)).collect();
     let first_failed = Mutex::new(None);
     let indices: Vec<usize> = (0..jobs.len()).collect();
     let results = pool(&indices, limit, |&i| {
@@ -326,7 +318,7 @@ pub fn run_all(
                     *first_failed.lock().expect("first failure") = Some(i);
                     for (j, pgid) in pgids.iter().enumerate() {
                         if j != i {
-                            kill_group(pgid.load(SeqCst));
+                            kill_group(*pgid.lock().expect("job pid"));
                         }
                     }
                 }

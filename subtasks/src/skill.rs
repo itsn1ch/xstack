@@ -7,6 +7,8 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(target_os = "macos")]
+use std::os::macos::fs::MetadataExt as _;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
@@ -50,9 +52,74 @@ fn temporary_file() -> Result<File> {
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn temporary_file() -> Result<File> {
-    Err("skill mode is unavailable without Linux Landlock".into())
+    crate::skill_sandbox::temporary_file()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn temporary_file() -> Result<File> {
+    Err("skill mode requires Linux Landlock or macOS Seatbelt".into())
+}
+
+#[cfg(target_os = "macos")]
+const PROVENANCE: &[u8] = b"com.apple.provenance";
+
+#[cfg(target_os = "macos")]
+fn extended_attributes(file: &File) -> Result<Vec<Vec<u8>>> {
+    let size = unsafe { libc::flistxattr(file.as_raw_fd(), std::ptr::null_mut(), 0, 0) };
+    if size < 0 {
+        return Err("cannot inspect extended attributes".into());
+    }
+    let mut names = vec![0u8; size as usize];
+    let read =
+        unsafe { libc::flistxattr(file.as_raw_fd(), names.as_mut_ptr().cast(), names.len(), 0) };
+    if read != size {
+        return Err("extended attributes changed during inspection".into());
+    }
+    Ok(names
+        .split(|&b| b == 0)
+        .filter(|name| !name.is_empty())
+        .map(<[u8]>::to_vec)
+        .collect())
+}
+
+#[cfg(target_os = "macos")]
+fn refuse_unpreservable_metadata(file: &File, flags: u32) -> Result<()> {
+    extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
+        fn acl_get_entry(
+            acl: *mut libc::c_void,
+            entry_id: libc::c_int,
+            entry: *mut *mut libc::c_void,
+        ) -> libc::c_int;
+        fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+    }
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    const ACL_FIRST_ENTRY: libc::c_int = 0;
+    if flags != 0 {
+        return Err("files with file flags cannot be replaced".into());
+    }
+    if !extended_attributes(file)?
+        .iter()
+        .all(|name| name.as_slice() == PROVENANCE)
+    {
+        return Err("files with extended attributes cannot be replaced".into());
+    }
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        return match io::Error::last_os_error().raw_os_error() {
+            Some(libc::ENOENT) => Ok(()),
+            _ => Err("cannot inspect file access control list".into()),
+        };
+    }
+    let mut entry = std::ptr::null_mut();
+    let has_entry = unsafe { acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) } == 0;
+    unsafe { acl_free(acl) };
+    if has_entry {
+        return Err("files with access control lists cannot be replaced".into());
+    }
+    Ok(())
 }
 
 fn open_workspace_file(root: &File, path: &str) -> Result<File> {
@@ -150,7 +217,9 @@ fn replace_workspace_file(root: &File, request: &Request) -> Result<()> {
     if unsafe { libc::flistxattr(original.as_raw_fd(), std::ptr::null_mut(), 0) } != 0 {
         return Err("files with extended attributes cannot be replaced".into());
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    refuse_unpreservable_metadata(&original, before.st_flags())?;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     return Err("replacement is unsupported on this operating system".into());
     let mut bytes = Vec::new();
     Read::by_ref(&mut original)
@@ -207,9 +276,16 @@ fn replace_workspace_file(root: &File, request: &Request) -> Result<()> {
         if new_meta.uid() != before.uid() || new_meta.gid() != before.gid() {
             return Err("file ownership cannot be preserved".into());
         }
-        if unsafe { libc::fchmod(temp.as_raw_fd(), before.mode() & 0o7777) } != 0 {
+        if unsafe { libc::fchmod(temp.as_raw_fd(), (before.mode() & 0o7777) as libc::mode_t) } != 0
+        {
             return Err("cannot preserve file mode".into());
         }
+        #[cfg(target_os = "macos")]
+        refuse_unpreservable_metadata(
+            &temp,
+            temp.metadata().map_err(|e| e.to_string())?.st_flags(),
+        )
+        .map_err(|_| "replacement file inherited metadata that cannot be preserved")?;
         temp.write_all(updated.as_bytes())
             .map_err(|e| e.to_string())?;
         temp.sync_all().map_err(|e| e.to_string())?;
@@ -252,7 +328,7 @@ fn replace_workspace_file(root: &File, request: &Request) -> Result<()> {
     result
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 extern "C" fn deadline_expired(_: libc::c_int) {
     let message = b"{\"status\":\"timed_out\",\"error\":\"skill deadline exceeded\"}\n";
     unsafe {
@@ -261,7 +337,7 @@ extern "C" fn deadline_expired(_: libc::c_int) {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn arm_deadline(timeout_ms: u64) -> Result<()> {
     let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
     action.sa_sigaction = deadline_expired as *const () as usize;
@@ -287,9 +363,9 @@ fn arm_deadline(timeout_ms: u64) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn arm_deadline(_: u64) -> Result<()> {
-    Err("skill mode is unavailable without Linux Landlock".into())
+    Err("skill mode requires Linux Landlock or macOS Seatbelt".into())
 }
 
 pub fn run(args: &[String]) -> Result<u8> {
@@ -308,7 +384,7 @@ pub fn run(args: &[String]) -> Result<u8> {
         );
         println!("Replace requires --allow-write, authorized=true, and an expected BLAKE3 hash.");
         println!(
-            "The host must authorize invocation. This mode requires Linux Landlock ABI 3 or newer."
+            "The host must authorize invocation. This mode requires Linux Landlock ABI 3 or newer, or the macOS Seatbelt sandbox."
         );
         return Ok(0);
     }

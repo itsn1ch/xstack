@@ -1,7 +1,6 @@
 use super::Task;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
@@ -46,13 +45,24 @@ impl Spool {
         for _ in 0..128 {
             let id = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
             let path = dir.join(format!(".xstack-subtasks-{}-{id}", std::process::id()));
-            match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)
+            let mut options = OpenOptions::new();
+            options.read(true).write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            #[cfg(windows)]
             {
+                std::os::windows::fs::OpenOptionsExt::custom_flags(
+                    &mut options,
+                    windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE,
+                );
+                match options.open(&path) {
+                    Ok(file) => return Ok(file),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(format!("cannot create private task spool: {error}")),
+                }
+            }
+            #[cfg(unix)]
+            match options.open(&path) {
                 Ok(file) => {
                     if let Err(error) = std::fs::remove_file(&path) {
                         drop(file);

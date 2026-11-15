@@ -3,7 +3,6 @@
 //! Where the temp dir is read-only (some sandboxes), a run goes unregistered and counts as alone instead of failing.
 use crate::Result;
 use std::fs::{self, File, OpenOptions};
-use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -44,13 +43,11 @@ pub struct Share {
 }
 
 fn dir() -> PathBuf {
-    // SAFETY: getuid has no preconditions.
-    std::env::temp_dir().join(format!("xstack-share-{}", unsafe { libc::getuid() }))
+    std::env::temp_dir().join(format!("xstack-share-{}", crate::os::user_tag()))
 }
 
 fn try_lock(file: &File) -> bool {
-    // SAFETY: flock on a descriptor the caller owns.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+    file.try_lock().is_ok()
 }
 
 impl Share {

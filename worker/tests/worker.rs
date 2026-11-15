@@ -569,17 +569,39 @@ fn the_fast_gate_passes_when_every_check_passes() {
     assert!(result.first_failed.is_none());
 }
 
+fn flock_command(command: &[&str], lock: &str, nonblocking: bool) -> Command {
+    if cfg!(target_os = "macos") {
+        let mut perl = Command::new("perl");
+        perl.args([
+            "-MFcntl=:flock",
+            "-e",
+            "open(my $f, '>>', shift) or die $!; \
+             flock($f, LOCK_EX | (shift() ? LOCK_NB : 0)) or exit 1; \
+             exit(system(@ARGV) == 0 ? 0 : 1)",
+            lock,
+            if nonblocking { "1" } else { "0" },
+        ]);
+        perl.args(command);
+        perl
+    } else {
+        let mut flock = Command::new("flock");
+        if nonblocking {
+            flock.arg("-n");
+        }
+        flock.arg(lock).args(command);
+        flock
+    }
+}
+
 #[test]
 fn a_busy_slot_held_by_another_process_makes_the_background_check_wait() {
     let dir = make_repo();
     let lock = format!("{}.0", queue::slot_lock_base(&dir).unwrap().display());
-    let mut holder = Command::new("flock")
-        .args([lock.as_str(), "sleep", "1.5"])
+    let mut holder = flock_command(&["sh", "-c", "sleep 1.5"], &lock, false)
         .spawn()
         .unwrap();
     // Wait until the holder really has the lock, so a slow spawn under load cannot let the check through.
-    while Command::new("flock")
-        .args(["-n", lock.as_str(), "true"])
+    while flock_command(&["true"], &lock, true)
         .status()
         .unwrap()
         .success()
@@ -926,5 +948,41 @@ fn probe_reports_the_power_and_the_burst() {
         text(&out).contains("POWER ") && text(&out).contains("BURST background"),
         "{}",
         text(&out)
+    );
+}
+
+#[test]
+fn a_finished_command_clears_its_pid_so_fail_fast_cannot_kill_a_reused_one() {
+    let pid = std::sync::Mutex::new(0);
+    let seen = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while seen.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+                let current = *pid.lock().unwrap();
+                seen.store(current.max(0) as usize, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let options = run::RunOptions {
+            pgid: Some(&pid),
+            ..run::RunOptions::new(60_000)
+        };
+        let result = run::run_command(
+            &std::env::temp_dir(),
+            &run::Spec::Shell("sleep 0.3".into()),
+            &options,
+        );
+        assert_eq!(result.exit, 0, "{}", result.output);
+    });
+    assert_ne!(
+        seen.load(Ordering::SeqCst),
+        0,
+        "the running pid was never published"
+    );
+    assert_eq!(
+        *pid.lock().unwrap(),
+        0,
+        "a finished command left its pid behind"
     );
 }

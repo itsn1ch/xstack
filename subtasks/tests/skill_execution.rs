@@ -1,3 +1,6 @@
+//! Skill mode needs Linux Landlock or macOS Seatbelt; Windows builds refuse it.
+#![cfg(unix)]
+
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -406,5 +409,67 @@ fn oversized_batch_cannot_apply_earlier_writes() {
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["error"], "skill batch exceeds 64 operations");
     assert_eq!(fs::read_to_string(path).unwrap(), "before");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// A replacement is a new file, so metadata it cannot carry over must stop the write instead of
+/// vanishing: custom extended attributes, BSD file flags, and access control lists.
+#[cfg(target_os = "macos")]
+#[test]
+fn replace_refuses_files_with_metadata_it_cannot_preserve() {
+    let dir = std::env::temp_dir().join(format!("xstack-skill-metadata-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let cases: [(&str, &[&str], &str); 3] = [
+        (
+            "xattr.txt",
+            &["xattr", "-w", "org.example.keep", "value"],
+            "extended attributes",
+        ),
+        ("flags.txt", &["chflags", "hidden"], "file flags"),
+        (
+            "acl.txt",
+            &["chmod", "+a", "everyone deny delete"],
+            "access control lists",
+        ),
+    ];
+    for (name, setup, reason) in cases {
+        let path = dir.join(name);
+        fs::write(&path, "old value\n").unwrap();
+        let status = Command::new(setup[0])
+            .args(&setup[1..])
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "{setup:?}");
+        let hash = blake3::hash(b"old value\n").to_hex().to_string();
+        let request = serde_json::json!({"id":"edit","operation":"replace","path":name,"old":"old","new":"new","expected_hash":hash,"authorized":true});
+        let mut child = Command::new(env!("CARGO_BIN_EXE_subtask"))
+            .current_dir(&dir)
+            .args(["skill", "--skill", "implementation", "--allow-write"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(), "{request}").unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(!output.status.success(), "{name}");
+        let row: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(row["status"], "failed", "{name}: {row}");
+        assert!(
+            row["error"].as_str().unwrap().contains(reason),
+            "{name}: {row}"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old value\n");
+    }
+    let _ = Command::new("chflags")
+        .arg("nohidden")
+        .arg(dir.join("flags.txt"))
+        .status();
+    let _ = Command::new("chmod")
+        .args(["-N"])
+        .arg(dir.join("acl.txt"))
+        .status();
     fs::remove_dir_all(dir).unwrap();
 }

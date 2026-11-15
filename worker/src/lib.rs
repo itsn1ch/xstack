@@ -1,5 +1,6 @@
 pub mod budget;
 pub mod git;
+pub mod os;
 pub mod probe;
 pub mod queue;
 pub mod run;

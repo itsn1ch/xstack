@@ -213,14 +213,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn alive(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    // SAFETY: signal 0 only checks that the process exists; it delivers nothing.
-    let result = unsafe { libc::kill(pid, 0) };
-    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
+pub use crate::os::alive;
 
 fn load(file: &Path) -> Result<State> {
     match fs::read(file) {

@@ -3,8 +3,6 @@
 use crate::state::CheckResult;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
-use std::os::fd::AsRawFd;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering::SeqCst};
@@ -75,12 +73,7 @@ pub fn cores() -> usize {
 }
 
 pub fn kill_group(pgid: i32) {
-    if pgid > 0 {
-        // SAFETY: a negative pid targets the process group this tool created for one command.
-        unsafe {
-            libc::kill(-pgid, libc::SIGKILL);
-        }
-    }
+    crate::os::kill_tree(pgid);
 }
 
 /// Blocks until one slot is free and returns its number and locked file; the lock is released when the file drops.
@@ -100,10 +93,7 @@ fn acquire_slot(slots: &Slots) -> Option<(usize, File)> {
         .collect::<Option<Vec<File>>>()?;
     let mut delay = SLOT_RETRY_MIN;
     loop {
-        // SAFETY: flock on descriptors this function owns.
-        let free = files.iter().position(
-            |file| unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-        );
+        let free = files.iter().position(|file| file.try_lock().is_ok());
         if let Some(i) = free {
             return Some((slots.order[i], files.swap_remove(i)));
         }
@@ -166,21 +156,17 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
             c
         }
     };
-    command
-        .current_dir(cwd)
-        .env("XSTACK_WORKER", "1")
-        .process_group(0);
+    command.current_dir(cwd).env("XSTACK_WORKER", "1");
+    crate::os::configure(
+        &mut command,
+        crate::os::Spawn {
+            own_group: true,
+            low_priority: options.nice,
+            detached: false,
+        },
+    );
     if let Some(slot) = &slot {
         command.env("XSTACK_WORKER_SLOT", slot);
-    }
-    if options.nice {
-        // SAFETY: setpriority is async-signal-safe and only lowers this child's own priority.
-        unsafe {
-            command.pre_exec(|| {
-                libc::setpriority(libc::PRIO_PROCESS, 0, 10);
-                Ok(())
-            });
-        }
     }
     if options.inherit {
         command

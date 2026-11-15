@@ -329,7 +329,7 @@ fn audit(args: Args) -> Result<(), String> {
     );
     let main = worktrees.first().ok_or("no worktrees found")?;
     let prs = prs(&repo);
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = std::env::home_dir();
     let now = SystemTime::now();
     let now_secs = now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
     let mut rows = Vec::new();

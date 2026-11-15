@@ -22,6 +22,7 @@ struct Ticks {
     total: u64,
 }
 
+#[cfg(not(any(target_os = "macos", windows)))]
 fn ticks() -> Option<Ticks> {
     let stat = fs::read_to_string("/proc/stat").ok()?;
     let fields: Vec<u64> = stat
@@ -44,6 +45,56 @@ fn ticks() -> Option<Ticks> {
     })
 }
 
+/// Runs `query` with a send right to the host port, then releases the right.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn with_host(query: impl FnOnce(libc::mach_port_t) -> libc::kern_return_t) -> libc::kern_return_t {
+    extern "C" {
+        fn mach_port_deallocate(
+            task: libc::mach_port_t,
+            name: libc::mach_port_t,
+        ) -> libc::kern_return_t;
+    }
+    // SAFETY: mach_host_self has no preconditions and returns a send right owned by this task.
+    let host = unsafe { libc::mach_host_self() };
+    let status = query(host);
+    // SAFETY: `host` is a send right this function received and has not released.
+    unsafe {
+        mach_port_deallocate(libc::mach_task_self(), host);
+    }
+    status
+}
+
+/// Cumulative CPU ticks of all processors from `host_statistics(HOST_CPU_LOAD_INFO)`.
+/// macOS reports user, system, idle and nice; it has no iowait, so only idle counts as idle.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn ticks() -> Option<Ticks> {
+    let mut info: libc::host_cpu_load_info = unsafe { std::mem::zeroed() };
+    let mut count = (std::mem::size_of::<libc::host_cpu_load_info>()
+        / std::mem::size_of::<libc::integer_t>())
+        as libc::mach_msg_type_number_t;
+    // SAFETY: the buffer is a host_cpu_load_info and `count` gives its size in integer_t units.
+    let status = with_host(|host| unsafe {
+        libc::host_statistics(
+            host,
+            libc::HOST_CPU_LOAD_INFO,
+            (&mut info as *mut libc::host_cpu_load_info).cast(),
+            &mut count,
+        )
+    });
+    if status != libc::KERN_SUCCESS {
+        return None;
+    }
+    let ticks = info.cpu_ticks.map(u64::from);
+    let total: u64 = ticks.iter().sum();
+    let idle = ticks[libc::CPU_STATE_IDLE as usize];
+    Some(Ticks {
+        busy: total.saturating_sub(idle),
+        total,
+    })
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -52,8 +103,7 @@ fn now_ms() -> u64 {
 
 /// Every reading leaves its sample here, so the next process can measure load without sleeping.
 fn cache_path() -> PathBuf {
-    // SAFETY: getuid has no preconditions.
-    std::env::temp_dir().join(format!("xstack-probe-{}", unsafe { libc::getuid() }))
+    std::env::temp_dir().join(format!("xstack-probe-{}", crate::os::user_tag()))
 }
 
 /// Cached samples, newest first, each with the time it was taken.
@@ -101,6 +151,12 @@ fn remember(sample: Ticks) {
     }
 }
 
+#[cfg(any(target_os = "macos", windows))]
+fn online_cpus() -> usize {
+    cores()
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn online_cpus() -> usize {
     let counted = fs::read_to_string("/proc/stat")
         .map(|s| {
@@ -118,6 +174,7 @@ fn online_cpus() -> usize {
     }
 }
 
+#[cfg(not(any(target_os = "macos", windows)))]
 fn mem_free_mb() -> Option<u64> {
     let info = fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = info
@@ -128,6 +185,70 @@ fn mem_free_mb() -> Option<u64> {
         .parse()
         .ok()?;
     Some(kb / 1024)
+}
+
+/// Available memory from `host_statistics64(HOST_VM_INFO64)`: free, speculative and inactive pages.
+/// These are the pages the kernel can hand out without compressing or swapping anonymous memory,
+/// which stays below the kernel's own `kern.memorystatus_level` estimate under memory pressure.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn mem_free_mb() -> Option<u64> {
+    let mut info: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    // SAFETY: the buffer is a vm_statistics64 and `count` gives its size in integer_t units.
+    let status = with_host(|host| unsafe {
+        libc::host_statistics64(
+            host,
+            libc::HOST_VM_INFO64,
+            (&mut info as *mut libc::vm_statistics64).cast(),
+            &mut count,
+        )
+    });
+    if status != libc::KERN_SUCCESS {
+        return None;
+    }
+    // SAFETY: sysconf has no preconditions.
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page <= 0 {
+        return None;
+    }
+    let pages = u64::from(info.free_count)
+        + u64::from(info.speculative_count)
+        + u64::from(info.inactive_count);
+    Some(pages * page as u64 / (1024 * 1024))
+}
+
+/// Cumulative CPU time of all processors from `GetSystemTimes`. Kernel time includes idle time.
+#[cfg(windows)]
+fn ticks() -> Option<Ticks> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::GetSystemTimes;
+    let value = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+    let mut idle: FILETIME = unsafe { std::mem::zeroed() };
+    let mut kernel = idle;
+    let mut user = idle;
+    // SAFETY: all three pointers are valid FILETIME out parameters.
+    if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+        return None;
+    }
+    let total = value(kernel) + value(user);
+    Some(Ticks {
+        busy: total.saturating_sub(value(idle)),
+        total,
+    })
+}
+
+/// Available physical memory from `GlobalMemoryStatusEx`.
+#[cfg(windows)]
+fn mem_free_mb() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: `status` is a MEMORYSTATUSEX with its length set, as the call requires.
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return None;
+    }
+    Some(status.ullAvailPhys / (1024 * 1024))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -204,5 +325,59 @@ impl Meter {
             busy,
             mem_free_mb: mem_free_mb(),
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use super::*;
+
+    #[test]
+    fn host_statistics_report_cpu_ticks_and_memory() {
+        let first = ticks().expect("HOST_CPU_LOAD_INFO is available");
+        assert!(first.total > 0 && first.busy <= first.total);
+        // The kernel publishes ticks at its own cadence, so spin until they move rather than for a fixed time.
+        let spin = std::time::Instant::now();
+        let second = loop {
+            std::hint::black_box((0..10_000u64).sum::<u64>());
+            let now = ticks().unwrap();
+            if now.busy > first.busy && now.total > first.total {
+                break now;
+            }
+            assert!(
+                spin.elapsed() < Duration::from_secs(2),
+                "CPU ticks did not advance while spinning"
+            );
+        };
+        assert!(second.busy <= second.total);
+
+        let mut size = 0u64;
+        let mut len = std::mem::size_of::<u64>();
+        // SAFETY: hw.memsize is a u64 and `len` gives the buffer size.
+        let status = unsafe {
+            libc::sysctlbyname(
+                c"hw.memsize".as_ptr(),
+                (&mut size as *mut u64).cast(),
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        assert_eq!(status, 0);
+        let free = mem_free_mb().expect("HOST_VM_INFO64 is available");
+        assert!(
+            free > 0 && free <= size / (1024 * 1024),
+            "{free} MB of {size} bytes"
+        );
+    }
+
+    #[test]
+    fn meter_measures_busy_cores_within_bounds() {
+        let (_, power) = Meter::start();
+        assert!(
+            power.busy >= 0.0 && power.busy <= power.cores as f64 + 0.5,
+            "{power:?}"
+        );
+        assert!(power.mem_free_mb.is_some());
     }
 }

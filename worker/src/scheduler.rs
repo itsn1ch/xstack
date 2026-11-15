@@ -14,7 +14,6 @@ use crate::Result;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::{mpsc, Arc};
@@ -135,8 +134,7 @@ fn lock_worktree(dir: &Path, k: usize) -> Option<File> {
         .write(true)
         .open(dir.join(format!("{k}.lock")))
         .ok()?;
-    // SAFETY: flock on a descriptor this function owns.
-    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(file)
+    file.try_lock().is_ok().then_some(file)
 }
 
 fn copy_into(from: &Path, to: &Path) -> std::io::Result<()> {

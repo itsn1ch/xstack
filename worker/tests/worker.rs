@@ -569,17 +569,42 @@ fn the_fast_gate_passes_when_every_check_passes() {
     assert!(result.first_failed.is_none());
 }
 
+/// Runs `command` in another process while it holds an exclusive flock(2) on `lock`, or fails at
+/// once if `nonblocking` and the lock is taken. util-linux `flock` does this on Linux; macOS has
+/// no such command, so a Perl one-liner (shipped with macOS) takes the same kind of lock there.
+fn flock_command(command: &[&str], lock: &str, nonblocking: bool) -> Command {
+    if cfg!(target_os = "macos") {
+        let mut perl = Command::new("perl");
+        perl.args([
+            "-MFcntl=:flock",
+            "-e",
+            "open(my $f, '>>', shift) or die $!; \
+             flock($f, LOCK_EX | (shift() ? LOCK_NB : 0)) or exit 1; \
+             exit(system(@ARGV) == 0 ? 0 : 1)",
+            lock,
+            if nonblocking { "1" } else { "0" },
+        ]);
+        perl.args(command);
+        perl
+    } else {
+        let mut flock = Command::new("flock");
+        if nonblocking {
+            flock.arg("-n");
+        }
+        flock.arg(lock).args(command);
+        flock
+    }
+}
+
 #[test]
 fn a_busy_slot_held_by_another_process_makes_the_background_check_wait() {
     let dir = make_repo();
     let lock = format!("{}.0", queue::slot_lock_base(&dir).unwrap().display());
-    let mut holder = Command::new("flock")
-        .args([lock.as_str(), "sleep", "1.5"])
+    let mut holder = flock_command(&["sh", "-c", "sleep 1.5"], &lock, false)
         .spawn()
         .unwrap();
     // Wait until the holder really has the lock, so a slow spawn under load cannot let the check through.
-    while Command::new("flock")
-        .args(["-n", lock.as_str(), "true"])
+    while flock_command(&["true"], &lock, true)
         .status()
         .unwrap()
         .success()

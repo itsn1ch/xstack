@@ -206,7 +206,6 @@ pub fn raise_nofile() -> u64 {
     }
 }
 
-/// Windows has no per-process descriptor limit to raise; this is the C runtime's ceiling on open files.
 #[cfg(windows)]
 pub fn raise_nofile() -> u64 {
     8192

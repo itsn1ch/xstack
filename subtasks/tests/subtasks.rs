@@ -1,4 +1,3 @@
-//! Fixtures are POSIX shell scripts with Unix permissions, so this suite runs on Unix only.
 #![cfg(unix)]
 
 use std::fs;

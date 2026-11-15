@@ -51,7 +51,6 @@ impl Spool {
             std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
             #[cfg(windows)]
             {
-                // FILE_FLAG_DELETE_ON_CLOSE: Windows cannot unlink an open file, so the handle removes it on close.
                 std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0400_0000);
                 match options.open(&path) {
                     Ok(file) => return Ok(file),

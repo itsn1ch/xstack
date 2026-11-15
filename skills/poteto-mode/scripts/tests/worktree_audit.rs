@@ -1,4 +1,3 @@
-//! The fixture links a fake PATH to git with a Unix symlink.
 #![cfg(unix)]
 
 use std::fs;
@@ -27,7 +26,6 @@ fn git(repo: &Path, args: &[&str]) {
 #[test]
 fn audit_holds_tracked_edits_and_recent_transcripts_without_deleting_files() {
     let temp = tempfile::tempdir().unwrap();
-    // git reports resolved paths, and macOS temp directories sit behind the /var -> /private/var symlink.
     let root = fs::canonicalize(temp.path()).unwrap();
     let repo = root.join("main repo");
     let worktree = root.join("linked worktree");

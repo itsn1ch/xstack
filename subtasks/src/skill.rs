@@ -62,13 +62,9 @@ fn temporary_file() -> Result<File> {
     Err("skill mode requires Linux Landlock or macOS Seatbelt".into())
 }
 
-/// The kernel tags every file a process with an app provenance creates or modifies with this
-/// attribute; no process can set or copy it, so a replacement file carries its writer's tag,
-/// exactly as with any editor's atomic save. It is the only attribute replacement accepts.
 #[cfg(target_os = "macos")]
 const PROVENANCE: &[u8] = b"com.apple.provenance";
 
-/// Names of the extended attributes on an open file.
 #[cfg(target_os = "macos")]
 fn extended_attributes(file: &File) -> Result<Vec<Vec<u8>>> {
     let size = unsafe { libc::flistxattr(file.as_raw_fd(), std::ptr::null_mut(), 0, 0) };
@@ -78,7 +74,6 @@ fn extended_attributes(file: &File) -> Result<Vec<Vec<u8>>> {
     let mut names = vec![0u8; size as usize];
     let read =
         unsafe { libc::flistxattr(file.as_raw_fd(), names.as_mut_ptr().cast(), names.len(), 0) };
-    // An attribute added between the two calls changes the size; refuse rather than guess.
     if read != size {
         return Err("extended attributes changed during inspection".into());
     }
@@ -89,9 +84,6 @@ fn extended_attributes(file: &File) -> Result<Vec<Vec<u8>>> {
         .collect())
 }
 
-/// Refuses files whose metadata a fresh replacement file would silently drop: extended
-/// attributes other than the kernel's provenance tag (quarantine, resource forks, Finder info,
-/// custom attributes), access control lists, and BSD file flags.
 #[cfg(target_os = "macos")]
 fn refuse_unpreservable_metadata(file: &File, flags: u32) -> Result<()> {
     extern "C" {
@@ -114,7 +106,6 @@ fn refuse_unpreservable_metadata(file: &File, flags: u32) -> Result<()> {
     {
         return Err("files with extended attributes cannot be replaced".into());
     }
-    // SAFETY: the descriptor is open; a non-null result is an ACL released with acl_free.
     let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         return match io::Error::last_os_error().raw_os_error() {

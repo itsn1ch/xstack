@@ -46,7 +46,6 @@ pub struct RunOptions<'a> {
     pub nice: bool,
     pub inherit: bool,
     pub cancel: Option<&'a AtomicBool>,
-    /// Holds the running command's pid, and 0 once it exits. Kill it only while holding the lock.
     pub pgid: Option<&'a Mutex<i32>>,
     /// Replaces `{slot}` and is exported as `XSTACK_WORKER_SLOT`, so concurrent checks keep separate state.
     /// Without one, a run that takes a slot lock is named `run<lock>`, apart from the background's numbers.
@@ -210,7 +209,6 @@ pub fn run_command(cwd: &Path, spec: &Spec, options: &RunOptions) -> CheckResult
     let (release, released) = mpsc::channel::<()>();
     let waiter = thread::spawn(move || {
         let _ = exited.send(child.wait());
-        // The open process handle keeps Windows from reusing the pid until the caller has cleared it.
         let _ = released.recv();
     });
 

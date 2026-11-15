@@ -99,8 +99,6 @@ pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
     Ok(())
 }
 
-/// Creates (or reuses) the per-user shared resource directory outside the workspace and opens it
-/// without following symlinks, refusing it unless this user owns it and no one else can write it.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn open_share(workspace_path: &Path) -> Result<File> {
     let temp = fs::canonicalize(std::env::temp_dir())
@@ -126,7 +124,6 @@ fn open_share(workspace_path: &Path) -> Result<File> {
     Ok(share)
 }
 
-/// The path the kernel currently records for an open directory, after all symlinks.
 #[cfg(target_os = "macos")]
 fn descriptor_path(file: &File) -> Result<std::path::PathBuf> {
     use std::os::unix::ffi::OsStrExt;
@@ -141,7 +138,6 @@ fn descriptor_path(file: &File) -> Result<std::path::PathBuf> {
     Ok(std::ffi::OsStr::from_bytes(&buffer[..end]).into())
 }
 
-/// Quotes a path as an SBPL string literal, refusing anything that is not a plain absolute path.
 #[cfg(target_os = "macos")]
 fn sbpl_path(path: &Path) -> Result<String> {
     let text = path.to_str().ok_or("sandbox path is not UTF-8")?;
@@ -155,11 +151,6 @@ fn sbpl_path(path: &Path) -> Result<String> {
     Ok(format!("\"{text}\""))
 }
 
-/// The Seatbelt profile for one skill run. Like the Landlock ruleset it governs the filesystem
-/// only: every file read, write and exec is denied, then reads (and with `allow_write`, writes)
-/// are allowed beneath the workspace, reads and writes beneath the shared resource directory,
-/// and the process's own descriptors through `/dev/fd`. Seatbelt resolves symlinks and `..`
-/// before matching, so neither can leave an allowed subtree.
 #[cfg(target_os = "macos")]
 pub(crate) fn profile(workspace: &Path, share: &Path, allow_write: bool) -> Result<String> {
     let workspace = sbpl_path(workspace)?;
@@ -183,8 +174,6 @@ pub(crate) fn profile(workspace: &Path, share: &Path, allow_write: bool) -> Resu
 #[cfg(target_os = "macos")]
 static SHARE: std::sync::OnceLock<File> = std::sync::OnceLock::new();
 
-/// Confines this process to the workspace with Seatbelt through `sandbox_init`, which Apple
-/// deprecated but still ships; a profile the kernel rejects, or any unsafe path, fails closed.
 #[cfg(target_os = "macos")]
 pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
     extern "C" {
@@ -210,12 +199,10 @@ pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
         return Err("workspace sandbox is already active".into());
     }
     let mut error = std::ptr::null_mut();
-    // SAFETY: the profile is a NUL-terminated string and `error` receives an allocation freed below.
     if unsafe { sandbox_init(profile.as_ptr(), 0, &mut error) } != 0 {
         let message = if error.is_null() {
             "unknown error".to_string()
         } else {
-            // SAFETY: sandbox_init set `error` to a NUL-terminated message it allocated.
             let text = unsafe { std::ffi::CStr::from_ptr(error) }
                 .to_string_lossy()
                 .into_owned();
@@ -227,8 +214,6 @@ pub fn restrict(workspace: &File, allow_write: bool) -> Result<()> {
     Ok(())
 }
 
-/// An anonymous read-write file in the shared resource directory, unlinked before it is returned.
-/// macOS has no memfd, so this stands in for it; it only works after `restrict` succeeded.
 #[cfg(target_os = "macos")]
 pub fn temporary_file() -> Result<File> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -240,7 +225,6 @@ pub fn temporary_file() -> Result<File> {
         NEXT.fetch_add(1, Ordering::Relaxed)
     ))
     .map_err(|_| "invalid temporary name")?;
-    // SAFETY: `name` is NUL-terminated and the share descriptor stays open for the process lifetime.
     let fd = unsafe {
         libc::openat(
             share.as_raw_fd(),
@@ -295,9 +279,6 @@ mod macos_tests {
         assert!(writable.contains("(allow file-write* (subpath \"/private/tmp/ws\"))"));
     }
 
-    /// Applies the sandbox in a fresh copy of this test binary, because a sandbox cannot be
-    /// lifted, and checks from inside that the kernel itself refuses escapes the skill code
-    /// would never attempt: absolute paths, `..`, symlinks, hard links, renames and exec.
     #[test]
     fn seatbelt_confines_files_to_the_workspace() {
         for allow_write in [false, true] {

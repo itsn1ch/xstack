@@ -45,7 +45,6 @@ fn ticks() -> Option<Ticks> {
     })
 }
 
-/// Runs `query` with a send right to the host port, then releases the right.
 #[cfg(target_os = "macos")]
 #[allow(deprecated)]
 fn with_host(query: impl FnOnce(libc::mach_port_t) -> libc::kern_return_t) -> libc::kern_return_t {
@@ -55,18 +54,14 @@ fn with_host(query: impl FnOnce(libc::mach_port_t) -> libc::kern_return_t) -> li
             name: libc::mach_port_t,
         ) -> libc::kern_return_t;
     }
-    // SAFETY: mach_host_self has no preconditions and returns a send right owned by this task.
     let host = unsafe { libc::mach_host_self() };
     let status = query(host);
-    // SAFETY: `host` is a send right this function received and has not released.
     unsafe {
         mach_port_deallocate(libc::mach_task_self(), host);
     }
     status
 }
 
-/// Cumulative CPU ticks of all processors from `host_statistics(HOST_CPU_LOAD_INFO)`.
-/// macOS reports user, system, idle and nice; it has no iowait, so only idle counts as idle.
 #[cfg(target_os = "macos")]
 #[allow(deprecated)]
 fn ticks() -> Option<Ticks> {
@@ -74,7 +69,6 @@ fn ticks() -> Option<Ticks> {
     let mut count = (std::mem::size_of::<libc::host_cpu_load_info>()
         / std::mem::size_of::<libc::integer_t>())
         as libc::mach_msg_type_number_t;
-    // SAFETY: the buffer is a host_cpu_load_info and `count` gives its size in integer_t units.
     let status = with_host(|host| unsafe {
         libc::host_statistics(
             host,
@@ -187,15 +181,11 @@ fn mem_free_mb() -> Option<u64> {
     Some(kb / 1024)
 }
 
-/// Available memory from `host_statistics64(HOST_VM_INFO64)`: free, speculative and inactive pages.
-/// These are the pages the kernel can hand out without compressing or swapping anonymous memory,
-/// which stays below the kernel's own `kern.memorystatus_level` estimate under memory pressure.
 #[cfg(target_os = "macos")]
 #[allow(deprecated)]
 fn mem_free_mb() -> Option<u64> {
     let mut info: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
     let mut count = libc::HOST_VM_INFO64_COUNT;
-    // SAFETY: the buffer is a vm_statistics64 and `count` gives its size in integer_t units.
     let status = with_host(|host| unsafe {
         libc::host_statistics64(
             host,
@@ -207,7 +197,6 @@ fn mem_free_mb() -> Option<u64> {
     if status != libc::KERN_SUCCESS {
         return None;
     }
-    // SAFETY: sysconf has no preconditions.
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
         return None;
@@ -218,7 +207,6 @@ fn mem_free_mb() -> Option<u64> {
     Some(pages * page as u64 / (1024 * 1024))
 }
 
-/// Cumulative CPU time of all processors from `GetSystemTimes`. Kernel time includes idle time.
 #[cfg(windows)]
 fn ticks() -> Option<Ticks> {
     use windows_sys::Win32::Foundation::FILETIME;
@@ -227,7 +215,6 @@ fn ticks() -> Option<Ticks> {
     let mut idle: FILETIME = unsafe { std::mem::zeroed() };
     let mut kernel = idle;
     let mut user = idle;
-    // SAFETY: all three pointers are valid FILETIME out parameters.
     if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
         return None;
     }
@@ -238,13 +225,11 @@ fn ticks() -> Option<Ticks> {
     })
 }
 
-/// Available physical memory from `GlobalMemoryStatusEx`.
 #[cfg(windows)]
 fn mem_free_mb() -> Option<u64> {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
     status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-    // SAFETY: `status` is a MEMORYSTATUSEX with its length set, as the call requires.
     if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
         return None;
     }
@@ -336,7 +321,6 @@ mod macos_tests {
     fn host_statistics_report_cpu_ticks_and_memory() {
         let first = ticks().expect("HOST_CPU_LOAD_INFO is available");
         assert!(first.total > 0 && first.busy <= first.total);
-        // The kernel publishes ticks at its own cadence, so spin until they move rather than for a fixed time.
         let spin = std::time::Instant::now();
         let second = loop {
             std::hint::black_box((0..10_000u64).sum::<u64>());
@@ -353,7 +337,6 @@ mod macos_tests {
 
         let mut size = 0u64;
         let mut len = std::mem::size_of::<u64>();
-        // SAFETY: hw.memsize is a u64 and `len` gives the buffer size.
         let status = unsafe {
             libc::sysctlbyname(
                 c"hw.memsize".as_ptr(),

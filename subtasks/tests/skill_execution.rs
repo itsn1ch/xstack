@@ -1,4 +1,3 @@
-//! Skill mode needs Linux Landlock or macOS Seatbelt; Windows builds refuse it.
 #![cfg(unix)]
 
 use std::fs;
@@ -412,8 +411,6 @@ fn oversized_batch_cannot_apply_earlier_writes() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-/// A replacement is a new file, so metadata it cannot carry over must stop the write instead of
-/// vanishing: custom extended attributes, BSD file flags, and access control lists.
 #[cfg(target_os = "macos")]
 #[test]
 fn replace_refuses_files_with_metadata_it_cannot_preserve() {

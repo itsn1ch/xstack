@@ -1,15 +1,9 @@
-//! Process control that differs between Unix and Windows.
-//! Unix uses process groups, signals, and `setsid`; Windows uses creation flags, process handles, and `taskkill`.
 use std::process::Command;
 
-/// How a spawned command relates to the caller.
 #[derive(Clone, Copy, Default)]
 pub struct Spawn {
-    /// Puts the command in its own process group, so cancellation reaches its children and a terminal interrupt does not.
     pub own_group: bool,
-    /// Lowers the command's scheduling priority below interactive work.
     pub low_priority: bool,
-    /// Detaches the command from the caller's session, so it outlives the caller.
     pub detached: bool,
 }
 
@@ -21,7 +15,6 @@ pub fn configure(command: &mut Command, spawn: Spawn) {
     }
     let (low_priority, detached) = (spawn.low_priority, spawn.detached);
     if low_priority || detached {
-        // SAFETY: setsid and setpriority are async-signal-safe and only affect the child.
         unsafe {
             command.pre_exec(move || {
                 if detached {
@@ -55,18 +48,15 @@ pub fn configure(command: &mut Command, spawn: Spawn) {
     command.creation_flags(flags);
 }
 
-/// Kills a command started with `own_group` and every process it started.
 #[cfg(unix)]
 pub fn kill_tree(pid: i32) {
     if pid > 0 {
-        // SAFETY: a negative pid targets the process group this tool created for one command.
         unsafe {
             libc::kill(-pid, libc::SIGKILL);
         }
     }
 }
 
-/// Kills a command and every process it started.
 #[cfg(windows)]
 pub fn kill_tree(pid: i32) {
     if pid > 0 {
@@ -84,7 +74,6 @@ pub fn alive(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }
-    // SAFETY: signal 0 only checks that the process exists; it delivers nothing.
     let result = unsafe { libc::kill(pid, 0) };
     result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
@@ -99,24 +88,18 @@ pub fn alive(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }
-    // SAFETY: OpenProcess has no preconditions; a non-null handle is closed below.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32) };
     if handle.is_null() {
-        // SAFETY: GetLastError has no preconditions.
         return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
     }
     let mut code = 0u32;
-    // SAFETY: `handle` is open and `code` is a valid out pointer.
     let ok = unsafe { GetExitCodeProcess(handle, &mut code) } != 0;
-    // SAFETY: `handle` came from OpenProcess and is closed once.
     unsafe { CloseHandle(handle) };
     ok && code == STILL_ACTIVE
 }
 
-/// Tells users apart in the shared temp directory. Windows temp directories are already per user.
 #[cfg(unix)]
 pub fn user_tag() -> String {
-    // SAFETY: getuid has no preconditions.
     unsafe { libc::getuid() }.to_string()
 }
 

@@ -569,9 +569,6 @@ fn the_fast_gate_passes_when_every_check_passes() {
     assert!(result.first_failed.is_none());
 }
 
-/// Runs `command` in another process while it holds an exclusive flock(2) on `lock`, or fails at
-/// once if `nonblocking` and the lock is taken. util-linux `flock` does this on Linux; macOS has
-/// no such command, so a Perl one-liner (shipped with macOS) takes the same kind of lock there.
 fn flock_command(command: &[&str], lock: &str, nonblocking: bool) -> Command {
     if cfg!(target_os = "macos") {
         let mut perl = Command::new("perl");

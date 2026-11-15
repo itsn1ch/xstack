@@ -65,4 +65,4 @@ Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 
 ### Code
 
-34. **Code comments.** Delete every comment in the code you edit or write: line, block, and doc comments, including `SAFETY` notes and commented-out code. Keep shebangs and directives the toolchain reads, such as `#![cfg(...)]` or `// @ts-expect-error`. Say what the code does through names, types, and tests instead. Run `/no-comments` when a comment claims a constraint.
+34. **Code comments.** Delete every comment in the code you edit or write: line, block, and doc comments, including `SAFETY` notes and commented-out code. Keep only shebangs. Lint and type suppressions such as `// @ts-expect-error` go to `/no-comments`, which fixes the code they hide. Say what the code does through names, types, and tests instead. Run `/no-comments` when a comment claims a constraint.

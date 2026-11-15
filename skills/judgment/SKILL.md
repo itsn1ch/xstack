@@ -1,6 +1,6 @@
 ---
 name: judgment
-description: "Independent release quality auditor. Verify completed work against requirements, inspect behavior, consistency with the existing codebase, readability, and formatting, and report evidence-backed findings with actionable remediation. Read-only. Use for /judgment, once per ticket or task under poteto-mode as one background subagent, or when asked to review or verify work."
+description: "Independent release quality auditor. Verify completed work against requirements, inspect behavior, consistency with the existing codebase, readability, formatting, and added code comments, and report evidence-backed findings with actionable remediation. Read-only. Use for /judgment, once per ticket or task under poteto-mode as one background subagent, or when asked to review or verify work."
 ---
 
 # Judgment
@@ -33,7 +33,7 @@ For every sweep, follow poteto-mode's **Subtasks** sweep and check rules: batch 
 3. **Consistency with the codebase.** Before judging any new or changed user-facing element (button, link, form field, dialog, message, page section) or any new component, helper, route, or pattern, find its existing siblings. Search the codebase in one `rg` call over the tree, or one `subtask --grep --keep-going` call when the file list comes from an earlier step, for the same label, role, action, component name, class, and call shape. New code reuses the existing component or matches its look, wording, placement, and behavior. A new button on page B that duplicates or diverges from the existing one on page A is a `NAG` that cites both `file:line`s, unless the ask explicitly asked for the difference. The remediation reuses or extends the existing component, not a hand-made copy restyled to match. For anything a user can see, compare the rendered siblings too. Use the screenshots from poteto-mode's **Browser at full width** matrix, or capture both pages in one `subtask` browser run.
 4. **Readability.** The changed path meets poteto-mode's **Junior Developer Readability**.
 5. **Writing and spacing.** Run `scripts/sweep.sh` on the changed text files through one `subtask` call, and the formatter check per poteto-mode's **Formatting**.
-6. **No comments.** The unit adds no code comments. Check the added lines of the judged range for line, block, and doc comments in each changed language, such as `git diff <base>..<head> -U0 | grep -E '^\+\s*(//|/\*|#(\s|$))'`, and read each hit. Every added comment is a `NAG` with its `file:line`, including doc and `SAFETY` comments. Shebangs, Markdown headings, and comments that existed before the range are not findings. The remediation is `/no-comments`.
+6. **No comments.** The unit adds no code comments. Check the added lines of the judged range for line, block, and doc comments in each changed language, such as `git diff <base>..<head> -U0 | grep -E '^\+\s*(//|/\*|#(\s|$))'`, and read each hit. That grep finds only comments that start a line, so also read the added lines for end-of-line comments, `#comment` with no space, and `<!-- -->`. Every added comment is a `NAG` with its `file:line`, including doc and `SAFETY` comments. Shebangs, Markdown headings, and comments that existed before the range are not findings. Lint and type suppressions are findings too. The remediation is `/no-comments`.
 
 ## Verdict
 

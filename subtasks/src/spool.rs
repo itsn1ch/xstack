@@ -51,7 +51,10 @@ impl Spool {
             std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
             #[cfg(windows)]
             {
-                std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0400_0000);
+                std::os::windows::fs::OpenOptionsExt::custom_flags(
+                    &mut options,
+                    windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE,
+                );
                 match options.open(&path) {
                     Ok(file) => return Ok(file),
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,

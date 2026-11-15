@@ -108,7 +108,7 @@ If a skill directory next to this one is missing from the table, read its frontm
 
 Close calls:
 
-- `/how` explains what the code does. `/why` explains the reasons. `/teach` runs one or both and explains the result plainly.
+- `/how` explains what the code does. `/why` explains the reasons. `/teach` runs one or both and explains the result plainly. `/discover` saves each unit's intent, reason, and invariants to `docs/discover/<topic>.md` as a record to check before changing the code.
 - `/arena` gives every worker the same brief and merges the best parts. `/swarm` splits work into slices or a race and returns one report.
 - `/to-tickets` settles the design, writes its contract, and slices it into flow-ordered tickets. Ask it to "implement it" to build right away, and add "with checkpoint" to review the design first.
 - `/interrogate` reviews the diff. `/blast-radius` looks for breakage outside the diff and proves the one fact that makes the change safe.

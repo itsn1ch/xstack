@@ -1,6 +1,6 @@
 #!/bin/sh
 if [ $# -lt 1 ]; then
-	echo "usage: sh check-discover.sh <docs/discover/topic.md> [repo root]" >&2
+	printf '%s\n' "usage: sh check-discover.sh <docs/discover/topic.md> [repo root]" >&2
 	exit 2
 fi
 file=$1
@@ -8,11 +8,11 @@ root=${2:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 gh=${GH:-gh}
 tab=$(printf '\t')
 [ -f "$file" ] || {
-	echo "$file: not found"
+	printf '%s\n' "$file: not found"
 	exit 1
 }
 if grep -q "$(printf '\r')" "$file"; then
-	echo "$file: uses CRLF line endings; convert it to LF"
+	printf '%s\n' "$file: uses CRLF line endings; convert it to LF"
 	exit 1
 fi
 
@@ -42,7 +42,7 @@ scan() {
 		/^[ \t]*$/ { next }
 		key == "" && /^[ \t]*- / {
 			name = key_name($0)
-			if ($0 ~ /^- (topic|scope): ./) header[name]++
+			if ($0 ~ /^- (topic|scope): [ \t]*[^ \t]/) header[name]++
 			else if ($0 ~ /^- commit: [0-9a-f]+$/) { header[name]++; print "COMMIT\t" NR "\t" substr($0, 11) }
 			else if ($0 ~ /^- commit: /) { reported[name] = 1; print f ":" NR ": commit must be a hex sha" }
 			else if ($0 ~ /^- date: [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && substr($0, 14, 2) + 0 >= 1 && substr($0, 14, 2) + 0 <= 12 && substr($0, 17, 2) + 0 >= 1 && substr($0, 17, 2) + 0 <= 31) header[name]++
@@ -53,9 +53,10 @@ scan() {
 			next
 		}
 		key == "" { print f ":" NR ": unexpected line in the header (use - topic:, - scope:, - commit:, - date:, then ## entries)"; next }
-		/^- intent: ./ { intent++; next }
-		/^- reason: ./ {
+		/^- intent: [ \t]*[^ \t]/ { intent++; next }
+		/^- reason: [ \t]*[^ \t]/ {
 			reason++
+			if ($0 ~ /^- reason: [ \t]*\(source:/) { print f ":" NR ": reason needs text before (source: ...)"; next }
 			if ($0 ~ /\(source: inferred\)$/) next
 			if (match($0, /\(source: PR #[0-9]+ "[^"]+"\)$/) || match($0, /\(source: [^ ()"]+ "[^"]+"\)$/)) {
 				src = substr($0, RSTART + 9, RLENGTH - 10)
@@ -68,14 +69,15 @@ scan() {
 			}
 			next
 		}
-		/^- invariant: ./ {
+		/^- invariant: [ \t]*[^ \t]/ {
 			inv++
+			if ($0 ~ /^- invariant: [ \t]*\(guard:/) { print f ":" NR ": invariant needs text before (guard: ...)"; next }
 			if ($0 ~ /\(guard: unguarded\)$/) next
 			if (match($0, /\(guard: [^ ()]+ [^ ()]+:[0-9]+\)$/)) print "GUARD\t" NR "\t" substr($0, RSTART + 8, RLENGTH - 9)
 			else print f ":" NR ": invariant must end with (guard: unguarded) or (guard: <test, assert, or type name> <path:line>)"
 			next
 		}
-		/^- evidence: ./ {
+		/^- evidence: [ \t]*[^ \t]/ {
 			ev++
 			refs = substr($0, 13)
 			bare = refs
@@ -115,26 +117,26 @@ check_ref() {
 	ref_line=$4
 	case "$ref_line" in
 	'' | *[!0-9]* | 0*)
-		echo "$at: $kind $ref_path:$ref_line is not a line in a file"
+		printf '%s\n' "$at: $kind $ref_path:$ref_line is not a line in a file"
 		return 1
 		;;
 	esac
 	case "$ref_path" in
 	*:*)
-		echo "$at: $kind $ref_path:$ref_line is not a line in a file"
+		printf '%s\n' "$at: $kind $ref_path:$ref_line is not a line in a file"
 		return 1
 		;;
 	/* | .. | ../* | */../* | */..)
-		echo "$at: $kind $ref_path:$ref_line is outside the repository"
+		printf '%s\n' "$at: $kind $ref_path:$ref_line is outside the repository"
 		return 1
 		;;
 	esac
 	if [ ! -f "$root/$ref_path" ]; then
-		echo "$at: $kind $ref_path:$ref_line names a missing file"
+		printf '%s\n' "$at: $kind $ref_path:$ref_line names a missing file"
 		return 1
 	fi
 	if [ "$(awk 'END { print NR }' "$root/$ref_path")" -lt "$ref_line" ]; then
-		echo "$at: $kind $ref_path:$ref_line is past the end of the file"
+		printf '%s\n' "$at: $kind $ref_path:$ref_line is past the end of the file"
 		return 1
 	fi
 }
@@ -145,7 +147,7 @@ check_evidence() {
 			case "$ref" in
 			'') ;;
 			*:*) check_ref evidence "$file:$line" "${ref%:*}" "${ref##*:}" ;;
-			*) echo "$file:$line: evidence $ref is not a line in a file" ;;
+			*) printf '%s\n' "$file:$line: evidence $ref is not a line in a file" ;;
 			esac
 		done
 	done
@@ -169,11 +171,11 @@ check_sources() {
 			fi
 			;;
 		'' | *[!0-9a-f]*)
-			echo "$file:$line: source $ref is not a path:line, commit sha, or PR #n"
+			printf '%s\n' "$file:$line: source $ref is not a path:line, commit sha, or PR #n"
 			;;
 		*)
 			if ! git -C "$root" cat-file -e "$ref^{commit}" 2>/dev/null; then
-				echo "$file:$line: source $ref is not a commit in $root"
+				printf '%s\n' "$file:$line: source $ref is not a commit in $root"
 			elif ! git -C "$root" log -1 --format=%B "$ref^{commit}" | grep -qF -- "$quote"; then
 				printf '%s\n' "$file:$line: commit $ref message does not contain \"$quote\""
 			fi
@@ -185,7 +187,7 @@ check_sources() {
 check_commits() {
 	while IFS=$tab read -r line sha; do
 		git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null ||
-			echo "$file:$line: commit $sha is not a commit in $root"
+			printf '%s\n' "$file:$line: commit $sha is not a commit in $root"
 	done
 }
 
@@ -195,7 +197,7 @@ check_guards() {
 		ref=${guard##* }
 		path=${ref%:*}
 		if check_ref guard "$file:$line" "$path" "${ref##*:}" && ! grep -qF -- "$name" "$root/$path"; then
-			echo "$file:$line: guard $name does not appear in $path"
+			printf '%s\n' "$file:$line: guard $name does not appear in $path"
 		fi
 	done
 }
@@ -218,4 +220,4 @@ if [ -n "$all" ]; then
 	printf '%s\n' "$all"
 	exit 1
 fi
-echo "DISCOVER OK $(rows ENTRIES) entries in $file"
+printf '%s\n' "DISCOVER OK $(rows ENTRIES) entries in $file"

@@ -109,6 +109,11 @@ expect_reject "empty topic" "topic needs a value" sed -e 's/^- topic: .*/- topic
 expect_reject "topic without a space" "topic needs a value" sed -e 's/^- topic: /- topic:/'
 expect_reject "indented header key" "topic must start at the beginning of the line" sed -e 's/^- topic:/  - topic:/'
 expect_reject "backslash in a quote" 'does not contain "a\\c made up words"' sed -e 's/"two runs on one machine would share"/"a\\c made up words"/'
+expect_reject "whitespace-only intent" "intent needs a value" sed -e 's/^- intent: Give a slot back.*/- intent:    /'
+expect_reject "whitespace-only topic" "topic needs a value" sed -e 's/^- topic: .*/- topic:    /'
+expect_reject "reason without text" "reason needs text before (source:" sed -e 's/^- reason: Separate lock files keep runs apart. /- reason: /'
+expect_reject "invariant without text" "invariant needs text before (guard:" sed -e 's/^- invariant: Release frees exactly one slot. /- invariant: /'
+expect_reject "backslash in an evidence path" 'evidence src\\cfoo.rs:1 names a missing file' sed -e 's/src\/lock.rs:1,/src\\cfoo.rs:1,/'
 expect_reject "missing source" "reason must end with" sed -e 's/ (source: PR #7 "lock file per run keeps runs apart")//'
 
 if out=$(GH="$tmp/no-gh" sh "$here/check-discover.sh" "$tmp/good.md" "$repo" 2>&1); then

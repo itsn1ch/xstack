@@ -9,9 +9,10 @@ repo=$tmp/repo
 mkdir -p "$repo/src" "$repo/tests" "$tmp/bin"
 printf '%s\n' 'pub fn acquire() {}' 'pub fn hold() {}' 'pub fn release() {}' >"$repo/src/lock.rs"
 printf '%s\n' 'fn two_runs_never_share_a_lock() {' '    assert_eq!(held(), 1);' '}' >"$repo/tests/lock.rs"
+printf '%s\n%s' 'first line' 'last line without a newline' >"$repo/src/tail.txt"
 git -C "$repo" init -q
-git -C "$repo" -c user.name=t -c user.email=t@example.invalid add .
-git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q -m "Lock per run because two runs on one machine would share a slot"
+git -C "$repo" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false add .
+git -C "$repo" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m "Lock per run because two runs on one machine would share a slot"
 sha=$(git -C "$repo" rev-parse --short HEAD)
 
 printf '%s\n' '#!/bin/sh' '[ "$1 $2 $3" = "pr view 7" ] || exit 1' 'echo "One lock file per run keeps runs apart"' >"$tmp/bin/gh"
@@ -44,8 +45,11 @@ EOF
 run() { GH="$tmp/bin/gh" sh "$here/check-discover.sh" "$1" "$repo" 2>&1; }
 
 expect_ok() {
-	out=$(run "$tmp/good.md") || {
-		echo "FAIL the valid file was rejected: $out"
+	name=$1
+	shift
+	"$@" <"$tmp/good.md" >"$tmp/case.md"
+	out=$(run "$tmp/case.md") || {
+		echo "FAIL $name was rejected: $out"
 		fail=1
 	}
 }
@@ -64,7 +68,8 @@ expect_reject() {
 	fi
 }
 
-expect_ok
+expect_ok "the valid file" cat
+expect_ok "last line without a newline" sed -e 's/^- evidence: src\/lock.rs:3$/- evidence: src\/lock.rs:3, src\/tail.txt:2/'
 expect_reject "hyphenated stray key" "unknown key see-also" awk '{ print } END { print "- see-also: x" }'
 expect_reject "capitalized stray key" "unknown key Notes" awk '{ print } END { print "- Notes: x" }'
 expect_reject "indented key" "unknown key" sed -e 's/^- invariant: A crashed/  &/'
@@ -82,6 +87,15 @@ expect_reject "made-up commit quote" "message does not contain" sed -e "s/\"two 
 expect_reject "made-up guard" "does not appear" sed -e 's/two_runs_never_share_a_lock/made_up_test/'
 expect_reject "evidence past the end" "past the end" sed -e 's/src\/lock.rs:1,/src\/lock.rs:99,/'
 expect_reject "duplicate key" "repeats line" sed -e 's/^## release$/## run-lock/'
+expect_reject "star bullet key" "unexpected line" awk '{ print } END { print "* notes: x" }'
+expect_reject "bare key" "unexpected line" awk '{ print } END { print "notes: x" }'
+expect_reject "tab after dash" "unexpected line" awk '{ print } END { print "-\tnotes: x" }'
+expect_reject "source line 0" "source src/lock.rs:0 is not a line" sed -e "s/(source: $sha /(source: src\/lock.rs:0 /"
+expect_reject "source leading zero" "source src/lock.rs:01 is not a line" sed -e "s/(source: $sha /(source: src\/lock.rs:01 /"
+expect_reject "path outside the repo" "outside the repository" sed -e 's/src\/lock.rs:1,/..\/outside.txt:1,/'
+expect_reject "absolute path" "outside the repository" sed -e 's/src\/lock.rs:1,/\/etc\/hosts:1,/'
+expect_reject "bad date" "date must be YYYY-MM-DD" sed -e 's/^- date: .*/- date: whenever/'
+expect_reject "CRLF line endings" "CRLF" awk '{ printf "%s\r\n", $0 }'
 expect_reject "missing source" "reason must end with" sed -e 's/ (source: PR #7 "lock file per run keeps runs apart")//'
 
 if out=$(GH="$tmp/no-gh" sh "$here/check-discover.sh" "$tmp/good.md" "$repo" 2>&1); then

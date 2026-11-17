@@ -287,6 +287,7 @@ The worker has no tiers. The Easy, Medium, and High tiers in `poteto-mode` estim
 - [`swarm`](skills/swarm/SKILL.md): fan out parallel workers and return one report.
 - [`typescript-best-practices`](skills/typescript-best-practices/SKILL.md): rules for `.ts` and `.tsx` files.
 - [`make-bot-ui`](skills/make-bot-ui/SKILL.md): build a page that wakes a bot through a webhook.
+- [`to-components`](skills/to-components/SKILL.md): extract reusable UI components from an existing app without changing what it renders or does.
 
 ### Debug and review
 
